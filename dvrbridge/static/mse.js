@@ -77,14 +77,57 @@ function startMse(video, url, onState) {
   return { stop() { stopped = true; clearTimeout(rc); cleanup(); } };
 }
 
-// Shared header + DVR status line.
-async function loadHeader(active) {
+// JSON API call. Every write is same-origin JSON (the server's CSRF check requires it).
+async function api(method, url, body) {
+  const opt = { method, headers: {}, credentials: 'same-origin' };
+  if (method !== 'GET') { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body || {}); }
+  let r;
+  try { r = await fetch(url, opt); } catch (e) { return { ok: false, status: 0, data: { detail: 'The server did not answer.' } }; }
+  let data = {};
+  try { data = await r.json(); } catch (e) { /* empty or non-JSON body */ }
+  if (r.status === 401 && data.error === 'login_required') {
+    location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+  }
+  return { ok: r.ok, status: r.status, data };
+}
+
+// Shared header: navigation for this user's role, account menu.
+async function loadNav(active) {
   const nav = document.getElementById('nav');
-  if (nav) nav.innerHTML = '<h1>DVR Bridge</h1><a href="/" class="' + (active === 'live' ? 'on' : '') + '">Live</a><a href="/recordings" class="' + (active === 'rec' ? 'on' : '') + '">Recordings</a><a href="/settings" class="' + (active === 'settings' ? 'on' : '') + '">Settings</a><span class="spacer"></span><span id="status"></span>';
+  const me = (await api('GET', '/api/me')).data || {};
+  if (!nav) return me;
+  nav.textContent = '';
+  const add = (tag, attrs, text) => {
+    const el = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, v));
+    if (text) el.textContent = text;
+    nav.appendChild(el);
+    return el;
+  };
+  add('h1', {}, 'DVR Bridge');
+  const link = (href, key, text) => add('a', { href, class: active === key ? 'on' : '' }, text);
+  link('/', 'live', 'Live');
+  link('/recordings', 'rec', 'Recordings');
+  if (me.role === 'admin') { link('/settings', 'settings', 'Settings'); link('/users', 'users', 'Users'); }
+  add('span', { class: 'spacer' });
+  add('span', { id: 'status' });
+  if (me.username && me.mode !== 'none') {
+    link('/account', 'account', me.username);
+    if (me.can_logout) {
+      const b = add('button', { type: 'button', class: 'link' }, 'Log out');
+      b.addEventListener('click', async () => { await api('POST', '/api/auth/logout'); location.href = '/login'; });
+    }
+  }
+  return me;
+}
+
+// Header + DVR status line + channel list (pages that show cameras).
+async function loadHeader(active) {
+  await loadNav(active);
   try {
-    const r = await (await fetch('/api/channels')).json();
+    const r = (await api('GET', '/api/channels')).data;
     const st = document.getElementById('status');
     if (st) st.textContent = r.dvr_up ? '' : 'DVR API unreachable';
-    return r;
+    return r.channels ? r : { channels: [], today: null };
   } catch (e) { return { channels: [], today: null }; }
 }

@@ -163,7 +163,7 @@ def test_csrf_problem(headers, bad):
 @pytest.fixture
 async def api(fake_dvr):
     from tests.test_app_and_playback import StubG2R
-    s = Settings(dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32, poll_interval=3600)
+    s = Settings(auth_mode="none", dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32, poll_interval=3600)
     dvr = DvrClient("dvr.test", "tester", "s3cret-pw", transport=fake_dvr.transport(), min_relogin_interval=0)
     app = create_app(s, dvr=dvr, go2rtc=StubG2R())
     async with app.router.lifespan_context(app):
@@ -270,7 +270,10 @@ async def test_csrf_runs_before_validation(api, fake_dvr):
 async def test_get_is_read_only(api, fake_dvr):
     await api.get("/api/settings/channels")
     assert fake_dvr.osd_sets == []
-    assert (await api.put("/api/settings/channels/8", content="{}")).status_code == 405
+    # Refused by the CSRF gate before routing; with same-origin JSON headers the route itself says 405.
+    assert (await api.put("/api/settings/channels/8", content="{}")).status_code == 403
+    same_origin = {"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"}
+    assert (await api.put("/api/settings/channels/8", content="{}", headers=same_origin)).status_code == 405
 
 
 async def test_settings_page_is_served(api):

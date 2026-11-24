@@ -18,9 +18,12 @@ on desktop or phone:
 The DVR stays the recorder. **DVR Bridge stores no footage**: clips stream from the DVR through the
 container to your browser, and nothing is written to disk.
 
-> Status: early. Tested on one model so far (see Compatibility). Built-in login (local accounts, OIDC,
-> trusted reverse-proxy header) is in progress - until it lands, **do not expose DVR Bridge without an
-> authenticating reverse proxy in front of it.**
+> Status: early. Tested on one model so far (see Compatibility).
+
+**Logins** are built in: local accounts (with optional or required authenticator-app codes), single
+sign-on through any OpenID Connect provider (Authentik, Keycloak, Google, Microsoft Entra, ...), or the
+identity headers of an authenticating reverse proxy. Admins manage users and camera names; viewers watch,
+play and download. Logins, failed logins, playback, exports and changes are kept in an activity log.
 
 Not affiliated with or endorsed by Swann, RaySharp or any DVR manufacturer. Brand names are used only to
 describe compatibility.
@@ -66,8 +69,33 @@ volumes:
   dvr-bridge-data:
 ```
 
-Then open `http://127.0.0.1:8099/` (or your proxy's address). See `compose.example.yaml` and
-`config.example.yaml` for complete examples.
+Then open `http://127.0.0.1:8099/` (or your proxy's address). On first start the container log
+(`docker logs dvr-bridge`) prints a one-time **setup code**; the setup page asks for it before creating the
+admin account, so nobody else who reaches the page first can claim the server. See
+`compose.example.yaml` and `config.example.yaml` for complete examples.
+
+## Logins
+
+`auth.mode` picks how people sign in:
+
+| Mode | Who signs in | Notes |
+| --- | --- | --- |
+| `local` (default) | accounts kept by DVR Bridge | passwords hashed with scrypt; `auth.totp: required` makes authenticator codes mandatory |
+| `oidc` | your identity provider | set `oidc_issuer`, `oidc_client_id`, `oidc_client_secret` and `server.public_url`; redirect URI is `<public_url>/auth/oidc/callback` |
+| `header` | your reverse proxy (Authentik/Authelia forward auth, oauth2-proxy, ...) | reads `header_user` / `header_groups`; requires `header_secret` and/or `trusted_proxies` so the headers cannot be forged |
+| `none` | everyone who can reach it is an admin | only behind a proxy that already authenticates; logs a warning at every start |
+
+In `oidc` and `header` mode, members of `oidc_admin_group` / `header_admin_group` are admins and everyone
+else is a viewer (`oidc_allowed_group` can restrict who may log in at all). `auth.local_login: true`
+keeps password logins available alongside them, for a break-glass admin. An external login can never take
+over a local account with the same name.
+
+Sessions are server-side (revoked on logout, password change and disabling a user) in an HttpOnly,
+SameSite=Lax cookie, Secure when `server.public_url` is https. Every state-changing request must be
+same-origin JSON. Failed logins are throttled per address and per account.
+
+Behind a reverse proxy, set `auth.trusted_proxies` to its address so the activity log and login
+throttling see real client addresses (from `X-Forwarded-For`, trusted only from those addresses).
 
 ### Network
 
@@ -102,7 +130,27 @@ and any of them can be read from a file by adding `_FILE` (for Docker secrets).
 | `server.public_url` | `DVRBRIDGE_SERVER_PUBLIC_URL` | empty | external URL, e.g. `https://cameras.example.com` |
 | `server.secret_key` | `DVRBRIDGE_SERVER_SECRET_KEY` | generated | signs sessions; generated into `/data/secret.key` if unset |
 
-Also: `DVRBRIDGE_DATA_DIR` (default `/data`) and `DVRBRIDGE_CONFIG` (default `/data/config.yaml`).
+| `auth.mode` | `DVRBRIDGE_AUTH_MODE` | `local` | `local`, `oidc`, `header` or `none` (see Logins) |
+| `auth.session_hours` | `DVRBRIDGE_AUTH_SESSION_HOURS` | `12` | how long a login lasts |
+| `auth.local_login` | `DVRBRIDGE_AUTH_LOCAL_LOGIN` | `true` | password logins (in `oidc`/`header` mode: break-glass) |
+| `auth.totp` | `DVRBRIDGE_AUTH_TOTP` | `optional` | `required` makes authenticator codes mandatory for local accounts |
+| `auth.oidc_issuer` | `DVRBRIDGE_AUTH_OIDC_ISSUER` | - | issuer URL (https) |
+| `auth.oidc_client_id` / `oidc_client_secret` | `DVRBRIDGE_AUTH_OIDC_CLIENT_ID` / `..._SECRET` | - | client credentials |
+| `auth.oidc_scopes` | `DVRBRIDGE_AUTH_OIDC_SCOPES` | `openid profile email groups` | scopes requested |
+| `auth.oidc_username_claim` | `DVRBRIDGE_AUTH_OIDC_USERNAME_CLAIM` | `preferred_username` | claim used as the username |
+| `auth.oidc_groups_claim` | `DVRBRIDGE_AUTH_OIDC_GROUPS_CLAIM` | `groups` | claim listing groups |
+| `auth.oidc_admin_group` | `DVRBRIDGE_AUTH_OIDC_ADMIN_GROUP` | empty | members are admins |
+| `auth.oidc_allowed_group` | `DVRBRIDGE_AUTH_OIDC_ALLOWED_GROUP` | empty | if set, only members (and admins) may log in |
+| `auth.oidc_button_label` | `DVRBRIDGE_AUTH_OIDC_BUTTON_LABEL` | `Sign in with SSO` | login button text |
+| `auth.header_user` | `DVRBRIDGE_AUTH_HEADER_USER` | `Remote-User` | header with the username |
+| `auth.header_groups` | `DVRBRIDGE_AUTH_HEADER_GROUPS` | `Remote-Groups` | header with groups (`,` or `\|` separated) |
+| `auth.header_admin_group` | `DVRBRIDGE_AUTH_HEADER_ADMIN_GROUP` | empty | members are admins |
+| `auth.header_secret` | `DVRBRIDGE_AUTH_HEADER_SECRET` | empty | shared secret the proxy must send (32+ characters) |
+| `auth.header_secret_name` | `DVRBRIDGE_AUTH_HEADER_SECRET_NAME` | `X-DVR-Bridge-Proxy-Secret` | header carrying it |
+| `auth.trusted_proxies` | `DVRBRIDGE_AUTH_TRUSTED_PROXIES` | empty | comma-separated addresses/networks of your proxies |
+
+Also: `DVRBRIDGE_DATA_DIR` (default `/data`: settings, the session key and `dvrbridge.db` with accounts,
+sessions and the activity log) and `DVRBRIDGE_CONFIG` (default `/data/config.yaml`).
 A bad or unknown setting stops the container at start-up with a message naming it.
 
 **Use a dedicated DVR account if your DVR allows it.** DVR Bridge only ever reads from the DVR, with one

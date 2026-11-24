@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users - DVR Bridge</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<header id="nav"></header>
+<main>
+  <div class="card wide">
+    <h2>Users</h2>
+    <p class="hint">Admins can rename cameras and manage users. Viewers can watch live, play and download recordings.
+      Single sign-on and proxy users appear here after their first login.</p>
+    <p id="msg"></p>
+    <table>
+      <thead><tr><th>User</th><th>Role</th><th>Two-factor</th><th>Last login</th><th></th></tr></thead>
+      <tbody id="users"></tbody>
+    </table>
+
+    <section id="addSection" hidden>
+      <h3>Add a local user</h3>
+      <form id="addForm">
+        <label for="newName">Username</label>
+        <input type="text" id="newName" autocomplete="off" autocapitalize="none" required maxlength="64">
+        <label for="newPw">Password (at least 10 characters)</label>
+        <input type="password" id="newPw" autocomplete="new-password" required minlength="10">
+        <label for="newRole">Role</label>
+        <select id="newRole"><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
+        <div class="actions"><button class="primary" type="submit">Add user</button></div>
+      </form>
+    </section>
+
+    <h3>Recent activity</h3>
+    <table>
+      <thead><tr><th>When</th><th>User</th><th>What</th><th>Detail</th><th>From</th></tr></thead>
+      <tbody id="audit"></tbody>
+    </table>
+  </div>
+</main>
+<script src="/static/mse.js"></script>
+<script src="/static/users.js"></script>
+</body></html>

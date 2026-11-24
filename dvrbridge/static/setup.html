@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up - DVR Bridge</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<main>
+  <div class="card">
+    <h2>Create the admin account</h2>
+    <p class="hint">The setup code is printed in the container's log at start-up
+      (<code>docker logs dvr-bridge</code>). It proves you run this server.</p>
+    <p class="err" id="error" hidden></p>
+    <form id="form">
+      <label for="code">Setup code</label>
+      <input type="text" id="code" autocomplete="off" autocapitalize="characters" required>
+      <label for="username">Admin username</label>
+      <input type="text" id="username" autocomplete="username" autocapitalize="none" required maxlength="64">
+      <label for="password">Password (at least 10 characters)</label>
+      <input type="password" id="password" autocomplete="new-password" required minlength="10">
+      <label for="password2">Password again</label>
+      <input type="password" id="password2" autocomplete="new-password" required minlength="10">
+      <div class="actions"><button class="primary" type="submit">Create account</button></div>
+    </form>
+  </div>
+</main>
+<script src="/static/setup.js"></script>
+</body></html>

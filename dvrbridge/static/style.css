@@ -1,5 +1,6 @@
 :root { color-scheme: dark; --bg:#111418; --panel:#1b2027; --line:#2c333d; --fg:#e6e9ee; --dim:#8b95a3; --acc:#4da3ff; --warn:#f0b429; }
 * { box-sizing: border-box; }
+[hidden] { display:none !important; }
 body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display:flex; align-items:center; gap:16px; padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
 header h1 { font-size:16px; margin:0 8px 0 0; }
@@ -77,3 +78,21 @@ tr.clipRow.on { background:var(--panel); }
 .sstate.ok { color:#6fd68c; } .sstate.bad { color:#ff8a8a; }
 @media (max-width:480px) { .srow label { flex-basis:100%; } .sstate { margin-left:0; } }
 .sstate:empty { display:none; }
+
+/* ---- auth, account and users pages ---- */
+button.link { background:none; border:none; color:var(--dim); padding:4px 2px; }
+button.link:hover { color:var(--fg); }
+.card { max-width:420px; margin:48px auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:22px; }
+.card.wide { max-width:860px; margin:16px auto; }
+.card h2 { margin:0 0 14px; font-size:18px; }
+.card h3 { margin:22px 0 8px; font-size:15px; }
+.card label { display:block; margin:10px 0 4px; color:var(--dim); font-size:13px; }
+.card input[type=text], .card input[type=password], .card select { width:100%; }
+.card .actions { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; align-items:center; }
+.card .hint { color:var(--dim); font-size:13px; margin:8px 0; }
+button.primary { background:var(--acc); border-color:var(--acc); color:#04121f; font-weight:600; }
+.or { text-align:center; color:var(--dim); margin:14px 0; font-size:13px; }
+.ok { color:#8be28b; }
+.qr { background:#fff; display:inline-block; padding:8px; border-radius:6px; margin:8px 0; }
+code.secret { word-break:break-all; background:var(--bg); padding:2px 6px; border-radius:4px; }
+td .tag { font-size:12px; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 5px; margin-left:4px; }

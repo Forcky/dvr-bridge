@@ -56,7 +56,7 @@ class Server:
     """The real app served by uvicorn on a local port, so streaming and disconnects are real."""
 
     def __init__(self, fake_dvr, media_port=None, playback=None, max_concurrent=2):
-        s = Settings(dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32,
+        s = Settings(auth_mode="none", dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32,
                      poll_interval=3600)
         dvr = DvrClient("dvr.test", "tester", "s3cret-pw", transport=fake_dvr.transport(), min_relogin_interval=0)
         self.media = MainSession("127.0.0.1", media_port or 1, "tester", "s3cret-pw", keepalive=0.2,

@@ -17,7 +17,7 @@ class StubG2R:
 
 @asynccontextmanager
 async def client_for(fake_dvr, **kw):
-    s = Settings(dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32,
+    s = Settings(auth_mode="none", dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32,
                  poll_interval=3600, **kw)
     dvr = DvrClient("dvr.test", "tester", "s3cret-pw", transport=fake_dvr.transport(), min_relogin_interval=0)
     app = create_app(s, dvr=dvr, go2rtc=StubG2R())

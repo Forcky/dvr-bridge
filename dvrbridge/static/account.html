@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account - DVR Bridge</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<header id="nav"></header>
+<main>
+  <div class="card wide">
+    <h2>Your account</h2>
+    <p class="hint" id="who"></p>
+    <p class="notice" id="enrolNotice" hidden>This server requires two-factor authentication. Set it up below to continue.</p>
+
+    <section id="pwSection" hidden>
+      <h3>Change password</h3>
+      <form id="pwForm">
+        <label for="cur">Current password</label>
+        <input type="password" id="cur" autocomplete="current-password" required>
+        <label for="new1">New password (at least 10 characters)</label>
+        <input type="password" id="new1" autocomplete="new-password" required minlength="10">
+        <label for="new2">New password again</label>
+        <input type="password" id="new2" autocomplete="new-password" required minlength="10">
+        <div class="actions"><button type="submit">Change password</button><span id="pwMsg"></span></div>
+      </form>
+    </section>
+
+    <section id="totpSection" hidden>
+      <h3>Two-factor authentication</h3>
+      <p class="hint" id="totpState"></p>
+      <div class="actions" id="totpStart"><button type="button" id="begin">Set up an authenticator app</button></div>
+      <div id="enrol" hidden>
+        <p class="hint">Scan this with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password,
+          Bitwarden...) or type the key in by hand, then enter the 6-digit code it shows.</p>
+        <div class="qr" id="qr"></div>
+        <p>Key: <code class="secret" id="secret"></code></p>
+        <form id="confirmForm">
+          <label for="code">Code</label>
+          <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required>
+          <div class="actions"><button class="primary" type="submit">Turn on</button><span id="totpMsg"></span></div>
+        </form>
+      </div>
+      <form id="disableForm" hidden>
+        <label for="disablePw">Password (to turn two-factor off)</label>
+        <input type="password" id="disablePw" autocomplete="current-password" required>
+        <div class="actions"><button type="submit">Turn off two-factor</button><span id="disableMsg"></span></div>
+      </form>
+    </section>
+
+    <p class="hint" id="external" hidden>This account is managed by your identity provider: change its password and
+      two-factor settings there.</p>
+  </div>
+</main>
+<script src="/static/mse.js"></script>
+<script src="/static/account.js"></script>
+</body></html>

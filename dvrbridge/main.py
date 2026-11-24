@@ -33,6 +33,10 @@ from .dvr9000 import (
 )
 from .playback import NoFootage, PlaybackNotImplemented, PlaybackProvider, PlaybackStats, prime, remux_to_fmp4
 from .state import Monitor, render_metrics
+from .auth.gate import AuthGate
+from .auth.routes import build_router
+from .auth.service import AuthService
+from .auth.store import Store
 
 STATIC = Path(__file__).parent / "static"
 log = logging.getLogger("dvrbridge")
@@ -45,8 +49,12 @@ def create_app(
     go2rtc: Go2rtc | None = None,
     playback: PlaybackProvider | None = None,
     media: MainSession | None = None,
+    auth: AuthService | None = None,
 ) -> FastAPI:
     s = settings or Settings.from_env()
+    if auth is None:
+        # With auth.mode none there are no accounts to keep; the audit log lives in memory.
+        auth = AuthService(s, store=Store(":memory:") if s.auth_mode == "none" else None)
     dvr = dvr or DvrClient(s.dvr_host, s.dvr_user, s.dvr_password, port=s.dvr_port)
     monitor = Monitor(dvr, interval=s.poll_interval)
 
@@ -67,6 +75,7 @@ def create_app(
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
+        auth.startup()
         await dvr.start()
         await monitor.start()
         await g2r.start()
@@ -78,8 +87,16 @@ def create_app(
             await dvr.close()
             if media is not None:
                 await media.close()
+            await auth.close()
 
     app = FastAPI(title="dvr-bridge", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.auth = auth
+    app.add_middleware(AuthGate, service=auth)
+    app.include_router(build_router(auth))
+
+    def audit(request: Request, action: str, detail: str) -> None:
+        user = request.state.user
+        auth.store.audit(action, user.username if user else None, detail, request.state.client_ip)
 
     @app.middleware("http")
     async def static_revalidate(request, call_next):
@@ -215,6 +232,7 @@ def create_app(
             log.warning("rename of channel %d failed: %s", channel, e)
             return dvr_failure(e, "the new name")
         log.info("channel %d renamed on the DVR to %r", channel, confirmed)
+        audit(request, "camera_renamed", f"channel {channel} -> {confirmed}")
         await monitor.refresh_channels((channel, confirmed))
         search_cache.clear()  # cached day searches carry the old names
         return {"channel": channel, "name": confirmed}
@@ -225,7 +243,8 @@ def create_app(
     def local_naive(dt: datetime) -> datetime:
         return dt.astimezone(tz).replace(tzinfo=None) if dt.tzinfo else dt
 
-    async def clip_response(channel: int, start: datetime, end: datetime, stream: str, filename: str | None):
+    async def clip_response(request: Request, channel: int, start: datetime, end: datetime, stream: str,
+                            filename: str | None):
         start, end = local_naive(start).replace(microsecond=0), local_naive(end).replace(microsecond=0)
         if end <= start or end - start > MAX_RANGE:
             return JSONResponse({"error": "bad_range",
@@ -254,6 +273,9 @@ def create_app(
             return JSONResponse({"error": "dvr_unavailable", "detail": "The DVR media port did not answer."},
                                 status_code=502)
 
+        audit(request, "export" if filename else "playback",
+              f"channel {channel} {start:%Y-%m-%d %H:%M:%S}-{end:%H:%M:%S} {stream}")
+
         async def body():
             try:
                 async for chunk in remux_to_fmp4(source, fps):
@@ -277,19 +299,21 @@ def create_app(
     )
 
     @app.get("/api/playback")
-    async def playback_endpoint(channel: int = clip_params["channel"], start: datetime = clip_params["start"],
-                                end: datetime = clip_params["end"], stream: str = clip_params["stream"]):
-        return await clip_response(channel, start, end, stream, None)
+    async def playback_endpoint(request: Request, channel: int = clip_params["channel"],
+                                start: datetime = clip_params["start"], end: datetime = clip_params["end"],
+                                stream: str = clip_params["stream"]):
+        return await clip_response(request, channel, start, end, stream, None)
 
     @app.get("/api/export")
-    async def export_endpoint(channel: int = clip_params["channel"], start: datetime = clip_params["start"],
-                              end: datetime = clip_params["end"], stream: str = clip_params["stream"]):
+    async def export_endpoint(request: Request, channel: int = clip_params["channel"],
+                              start: datetime = clip_params["start"], end: datetime = clip_params["end"],
+                              stream: str = clip_params["stream"]):
         name = re.sub(r"[^A-Za-z0-9_-]+", "", monitor.channel_names(channel_count()).get(channel, "").replace(" ", "-"))
         if name == f"Channel-{channel}":
             name = ""
         a, b = local_naive(start), local_naive(end)
         fn = f"ch{channel}" + (f"-{name}" if name else "") + f"-{a:%Y%m%d-%H%M%S}-{b:%H%M%S}.mp4"
-        return await clip_response(channel, start, end, stream, fn)
+        return await clip_response(request, channel, start, end, stream, fn)
 
     @app.get("/api/playback/status")
     async def playback_status() -> dict:

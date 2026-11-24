@@ -21,7 +21,7 @@ class StubG2R:
 
 @pytest.fixture
 async def client(fake_dvr):
-    s = Settings(dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32, poll_interval=3600)
+    s = Settings(auth_mode="none", dvr_host="dvr.test", dvr_user="tester", dvr_password="s3cret-pw", secret_key="k" * 32, poll_interval=3600)
     dvr = DvrClient("dvr.test", "tester", "s3cret-pw", transport=fake_dvr.transport(), min_relogin_interval=0)
     app = create_app(s, dvr=dvr, go2rtc=StubG2R())
     async with app.router.lifespan_context(app):

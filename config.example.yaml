@@ -25,3 +25,23 @@ monitoring:
 server:
   # public_url: https://cameras.example.com
   # secret_key: ""            # generated into /data/secret.key if not set
+
+auth:
+  mode: local                 # local | oidc | header | none
+  # session_hours: 12
+  # totp: optional            # or required
+  # local_login: true         # in oidc/header mode: keep a break-glass password login
+
+  # -- single sign-on (mode: oidc); needs server.public_url --
+  # oidc_issuer: https://auth.example.com/application/o/dvr-bridge/
+  # oidc_client_id: dvr-bridge
+  # oidc_client_secret: change-me
+  # oidc_admin_group: cctv-admins
+  # oidc_allowed_group: family
+
+  # -- reverse proxy identity headers (mode: header) --
+  # header_user: Remote-User
+  # header_groups: Remote-Groups
+  # header_admin_group: cctv-admins
+  # header_secret: a-long-random-string-your-proxy-also-sends
+  # trusted_proxies: 172.18.0.0/16
