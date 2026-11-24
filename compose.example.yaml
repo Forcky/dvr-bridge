@@ -1,10 +1,11 @@
-# Example Docker Compose service for DVR Bridge.
+# Example Docker Compose file for DVR Bridge.
 # Copy to compose.yaml, set the DVR address and time zone, and put the DVR password in
-# ./dvr_password.txt (one line). Put an authenticating reverse proxy in front before exposing it.
+# ./dvr_password.txt (one line). See README.md, "Installation".
 services:
   dvr-bridge:
-    image: ghcr.io/forcky/dvr-bridge:latest
-    # build: .                                 # or build from a checkout
+    build: .                                    # builds from this checkout
+    image: dvr-bridge:local
+    container_name: dvr-bridge
     environment:
       DVRBRIDGE_DVR_HOST: 192.168.1.50
       DVRBRIDGE_DVR_USERNAME: admin
