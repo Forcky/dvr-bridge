@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera - DVR Bridge</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<header id="nav"></header>
+<main><div class="single">
+  <div class="bar"><a href="/">&larr; All cameras</a><strong id="title"></strong><span id="state" class="notice" style="padding:2px 8px"></span></div>
+  <video id="v" muted playsinline autoplay controls></video>
+</div></main>
+<script src="/static/mse.js"></script>
+<script>
+(async () => {
+  const ch = parseInt(location.pathname.split('/').pop(), 10);
+  const info = await loadHeader('live');
+  const c = info.channels.find((x) => x.channel === ch);
+  document.getElementById('title').textContent = ch + ' · ' + (c ? c.name : 'Channel ' + ch) + ' (main stream)';
+  document.title = 'Camera ' + ch + ' - DVR Bridge';
+  const st = document.getElementById('state');
+  startMse(document.getElementById('v'), '/ws/live/' + ch + '/main', (s) => { st.textContent = s; st.hidden = s === 'live'; });
+})();
+</script>
+</body></html>

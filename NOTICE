@@ -1,0 +1,29 @@
+DVR Bridge
+Copyright (C) 2026 Patrick Forck and contributors
+Licensed under the GNU Affero General Public License v3.0 (see LICENSE).
+
+Not affiliated with or endorsed by Swann Communications, RaySharp or any DVR manufacturer.
+Product and brand names are used only to describe compatibility. No vendor software, firmware or
+code is included in this project; the DVR protocols are implemented from observed network
+behaviour for interoperability.
+
+Third-party components in the Docker image
+------------------------------------------
+
+go2rtc 1.9.15 - MIT License - https://github.com/AlexxIT/go2rtc
+  Downloaded as a release binary at build time and verified by SHA-256 (see Dockerfile).
+
+FFmpeg 7.1 (static build by mwader/static-ffmpeg) - GNU General Public License v3 or later
+  The image contains the binary from the container image mwader/static-ffmpeg:7.1.
+  Corresponding source: FFmpeg 7.1 at https://ffmpeg.org/releases/ and the build recipe at
+  https://github.com/wader/static-ffmpeg (tag 7.1), including the sources of the libraries it
+  links. DVR Bridge runs ffmpeg as a separate program; it does not link against it.
+
+Python 3.13 (PSF License) and Debian bookworm packages from the official python:3.13-slim image.
+
+Python packages (see requirements.txt for exact versions):
+  FastAPI (MIT), Starlette (BSD-3-Clause), uvicorn (BSD-3-Clause), httpx and httpcore
+  (BSD-3-Clause), websockets (BSD-3-Clause), Pydantic (MIT), PyYAML (MIT), anyio (MIT),
+  uvloop (MIT / Apache-2.0), httptools (MIT), watchfiles (MIT), python-dotenv (BSD-3-Clause),
+  h11 (MIT), idna (BSD-3-Clause), certifi (MPL-2.0), click (BSD-3-Clause), tzdata (Apache-2.0),
+  typing_extensions (PSF), annotated-types (MIT), typing-inspection (MIT), annotated-doc (MIT).

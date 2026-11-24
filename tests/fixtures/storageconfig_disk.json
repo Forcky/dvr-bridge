@@ -1,0 +1,1 @@
+{"result":"success","data":{"disk_info":[{"id":1,"display_id":1,"model":"TOSHIBA DT01ABA100V                    ","serial_no":"SCRUBBED","firmware":"MU2OA720","device_type":"Normal","status":"Full","total_size":953869,"free_size":0,"total_time":0,"free_time":0,"format_enable":true,"delete_enable":false}],"over_write":"Auto","hdd_format_type":"AllHddData","support_format":false}}

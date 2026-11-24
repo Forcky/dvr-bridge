@@ -1,0 +1,27 @@
+# Example /data/config.yaml for DVR Bridge. Every setting is optional except dvr.host and
+# dvr.password, and any of them can instead be set as an environment variable:
+# DVRBRIDGE_<SECTION>_<KEY>, e.g. DVRBRIDGE_DVR_HOST. Environment variables win over this file.
+# This file can hold the DVR password: keep it readable by the container user only (chmod 600).
+
+dvr:
+  host: 192.168.1.50
+  username: admin
+  password: change-me
+  # http_port: 85
+  # media_port: 9000          # recorded playback
+  # rtsp_port: 554            # live view
+  # channels: 0               # 0 = ask the DVR
+  timezone: Europe/London     # the time zone the DVR's clock is set to
+
+playback:
+  # max_concurrent: 2         # clips streamed at once
+  # max_range_hours: 3        # longest clip that can be played or exported
+
+monitoring:
+  # poll_interval: 60         # seconds between DVR status polls
+  # metrics_enabled: true
+  # metrics_token: ""         # if set, /metrics needs "Authorization: Bearer <token>"
+
+server:
+  # public_url: https://cameras.example.com
+  # secret_key: ""            # generated into /data/secret.key if not set

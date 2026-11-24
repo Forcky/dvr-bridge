@@ -1,0 +1,36 @@
+# Example Docker Compose service for DVR Bridge.
+# Copy to compose.yaml, set the DVR address and time zone, and put the DVR password in
+# ./dvr_password.txt (one line). Put an authenticating reverse proxy in front before exposing it.
+services:
+  dvr-bridge:
+    image: ghcr.io/forcky/dvr-bridge:latest
+    # build: .                                 # or build from a checkout
+    environment:
+      DVRBRIDGE_DVR_HOST: 192.168.1.50
+      DVRBRIDGE_DVR_USERNAME: admin
+      DVRBRIDGE_DVR_PASSWORD_FILE: /run/secrets/dvr_password
+      DVRBRIDGE_DVR_TIMEZONE: Europe/London     # the time zone the DVR's clock is set to
+      # DVRBRIDGE_SERVER_PUBLIC_URL: https://cameras.example.com
+      # DVRBRIDGE_MONITORING_METRICS_TOKEN_FILE: /run/secrets/metrics_token
+    secrets:
+      - dvr_password
+    volumes:
+      - dvr-bridge-data:/data                   # settings and the generated session key
+    ports:
+      - 127.0.0.1:8099:8099                     # loopback only; your proxy connects here
+    read_only: true
+    tmpfs:
+      - /tmp                                    # go2rtc's generated config (0600) lives here
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    restart: unless-stopped
+
+secrets:
+  dvr_password:
+    file: ./dvr_password.txt
+
+volumes:
+  dvr-bridge-data:

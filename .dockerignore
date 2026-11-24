@@ -1,0 +1,9 @@
+*
+!dvrbridge
+!requirements.txt
+!tests
+!requirements-dev.txt
+!pytest.ini
+!config.example.yaml
+**/__pycache__
+**/*.pyc

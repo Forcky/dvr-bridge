@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recordings - DVR Bridge</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<header id="nav"></header>
+<main>
+  <div class="bar">
+    <button id="prev" aria-label="Previous day">&larr;</button>
+    <input type="date" id="day">
+    <button id="next" aria-label="Next day">&rarr;</button>
+    <span id="summary" style="color:var(--dim)"></span>
+  </div>
+  <div id="msg" class="notice" hidden></div>
+  <section id="player" hidden>
+    <div class="bar"><strong id="ptitle"></strong><span class="spacer"></span>
+      <a id="dl" class="btn" download>Download</a><button id="pclose" aria-label="Close player">Close</button></div>
+    <video id="pv" controls autoplay muted playsinline></video>
+  </section>
+  <div class="zbar" id="zbar"><span id="view" class="zview" aria-live="polite"></span></div>
+  <div id="tlwrap">
+    <div class="axis" id="axisTop"></div>
+    <div id="rows"></div>
+    <div class="axis" id="axisBot"></div>
+  </div>
+  <p class="hint">Mouse wheel zooms at the pointer (Shift+wheel pans). Drag to pan when zoomed, or drag across the day (Shift+drag when zoomed) to zoom into a range. On a touch screen, pinch to zoom and drag to pan; tap a clip to see its times and play it.</p>
+  <div id="clips"></div>
+  <div id="tip" role="tooltip" hidden></div>
+</main>
+<script src="/static/mse.js"></script>
+<script src="/static/recordings.js"></script>
+</body></html>
