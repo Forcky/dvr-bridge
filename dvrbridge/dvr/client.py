@@ -27,6 +27,7 @@ import httpx
 
 from .models import (
     DVR_DATE_FMT,
+    BaseInfo,
     ChannelInfo,
     Clip,
     DeviceInfo,
@@ -44,13 +45,14 @@ HEARTBEAT_PATH = "/API/Login/Heartbeat"
 
 OSD_GET = "/API/ChannelConfig/OSD/Get"
 OSD_RANGE = "/API/ChannelConfig/OSD/Range"
-OSD_SET = "/API/ChannelConfig/OSD/Set"  # the only write endpoint the gateway can call
+OSD_SET = "/API/ChannelConfig/OSD/Set"  # the only write endpoint DVR Bridge can call
 
 ALLOWED_PATHS = frozenset(
     {
         LOGIN_PATH,
         HEARTBEAT_PATH,
         "/API/Login/DeviceInfo/Get",
+        "/API/SystemInfo/Base/Get",
         "/API/Login/ChannelInfo/Get",
         "/API/StorageConfig/Disk/Get",
         "/API/SystemInfo/Record/Get",
@@ -128,7 +130,6 @@ def build_digest_header(
     if hash_username:
         parts.append("userhash=true")
     return "Digest " + ",".join(parts)
-    return "Digest " + ", ".join(parts)
 
 
 class DvrClient:
@@ -268,6 +269,10 @@ class DvrClient:
     # ---- typed calls -----------------------------------------------------
     async def system_info(self) -> DeviceInfo:
         return DeviceInfo.parse(await self.call("/API/Login/DeviceInfo/Get"))
+
+    async def base_info(self) -> BaseInfo:
+        """Model, firmware and hardware versions (shown by the connection test)."""
+        return BaseInfo.parse(await self.call("/API/SystemInfo/Base/Get"))
 
     async def channel_info(self) -> list[ChannelInfo]:
         return ChannelInfo.parse_list(await self.call("/API/Login/ChannelInfo/Get"))

@@ -23,7 +23,7 @@ PUBLIC_PATHS = frozenset({
     "/auth/oidc/start", "/auth/oidc/callback",
 })
 PUBLIC_PREFIXES = ("/static/",)
-ADMIN_PATHS = frozenset({"/settings", "/users"})
+ADMIN_PATHS = frozenset({"/settings", "/settings/system", "/users"})
 ADMIN_PREFIXES = ("/api/settings/", "/api/users", "/api/audit")
 # Reachable while a required second factor is not set up yet.
 ENROL_PATHS = frozenset({"/account", "/api/me", "/api/account/totp/begin", "/api/account/totp/confirm"})

@@ -18,6 +18,7 @@ settings page can show which ones are fixed by the environment.
 from __future__ import annotations
 
 import os
+import re
 import secrets as _secrets
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -42,6 +43,8 @@ class Option:
     kind: type
     secret: bool = False
     help: str = ""
+    choices: tuple[str, ...] = ()
+    editable: bool = True   # shown and changeable on the settings page
 
     @property
     def env(self) -> str:
@@ -65,13 +68,15 @@ OPTIONS: tuple[Option, ...] = (
     Option("monitoring", "metrics_token", "metrics_token", str, secret=True,
            help="If set, /metrics requires 'Authorization: Bearer <token>'"),
     Option("server", "public_url", "public_url", str, help="External URL, e.g. https://cameras.example.com"),
-    Option("server", "secret_key", "secret_key", str, secret=True,
+    Option("server", "secret_key", "secret_key", str, secret=True, editable=False,
            help="Signs sessions; generated and stored in the data directory if not set"),
-    Option("auth", "mode", "auth_mode", str, help="local, oidc, header or none"),
-    Option("auth", "session_hours", "session_hours", int, help="How long a login lasts"),
+    Option("auth", "mode", "auth_mode", str, help="How people sign in",
+           choices=("local", "oidc", "header", "none")),
+    Option("auth", "session_hours", "session_hours", int, help="How long a login lasts (hours)"),
     Option("auth", "local_login", "local_login", bool,
            help="Allow username/password logins (in oidc/header mode: a break-glass admin login)"),
-    Option("auth", "totp", "totp", str, help="Two-factor codes: optional or required"),
+    Option("auth", "totp", "totp", str, help="Authenticator-app codes for local accounts",
+           choices=("optional", "required")),
     Option("auth", "oidc_issuer", "oidc_issuer", str, help="OIDC issuer URL"),
     Option("auth", "oidc_client_id", "oidc_client_id", str, help="OIDC client ID"),
     Option("auth", "oidc_client_secret", "oidc_client_secret", str, secret=True, help="OIDC client secret"),
@@ -143,6 +148,10 @@ class Settings:
         if problems:
             raise ConfigError("; ".join(problems))
 
+    @property
+    def dvr_configured(self) -> bool:
+        return bool(self.dvr_host and self.dvr_password)
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
         """Load from the environment and the config file it points at (or the default one)."""
@@ -169,13 +178,17 @@ def _coerce(opt: Option, value: Any) -> Any:
 
 
 def validate(s: Settings) -> list[str]:
+    """Problems with a complete configuration. A DVR that is not set up yet (no host and no password)
+    is allowed: the server then starts for the first-run wizard."""
     p: list[str] = []
-    if not s.dvr_host:
+    if s.dvr_host and not s.dvr_password:
+        p.append("dvr.password is required")
+    if s.dvr_password and not s.dvr_host:
         p.append("dvr.host is required")
+    if s.dvr_host and not valid_host(s.dvr_host):
+        p.append("dvr.host must be an IP address or host name")
     if not s.dvr_user:
         p.append("dvr.username is required")
-    if not s.dvr_password:
-        p.append("dvr.password is required")
     if len(s.secret_key) < 16:
         p.append("server.secret_key must be at least 16 characters")
     for name in ("dvr_port", "dvr_media_port", "rtsp_port"):
@@ -199,6 +212,19 @@ def validate(s: Settings) -> list[str]:
             p.append("server.public_url must look like https://cameras.example.com")
     p += _validate_auth(s)
     return p
+
+
+_HOST_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+
+
+def valid_host(host: str) -> bool:
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return bool(_HOST_RE.match(host))
 
 
 def _validate_auth(s: Settings) -> list[str]:
@@ -292,10 +318,81 @@ def persisted_secret_key(data_dir: str) -> str:
     return key
 
 
+def config_path(env: Mapping[str, str] | None = None) -> Path:
+    e = os.environ if env is None else env
+    return Path(e.get(ENV_PREFIX + "CONFIG") or Path(e.get(ENV_PREFIX + "DATA_DIR", "/data")) / "config.yaml")
+
+
+def schema(s: Settings) -> list[dict]:
+    """What the settings page shows: every editable option, its value (never a secret's value),
+    where it came from, and whether the environment fixes it."""
+    out = []
+    for o in OPTIONS:
+        if not o.editable:
+            continue
+        value = getattr(s, o.attr)
+        source = s.sources.get(o.attr, "default")
+        out.append({
+            "key": f"{o.section}.{o.key}", "section": o.section, "help": o.help,
+            "kind": {bool: "bool", int: "int", float: "number"}.get(o.kind, "text"),
+            "secret": o.secret, "value": None if o.secret else value, "is_set": bool(value) if o.secret else None,
+            "source": source, "locked": source == "env", "env": o.env, "choices": list(o.choices),
+        })
+    return out
+
+
+def save(updates: Mapping[str, Any], env: Mapping[str, str] | None = None, *, dry_run: bool = False) -> Settings:
+    """Apply ``{"section.key": value}`` to the config file and return the resulting settings.
+
+    ``None`` removes a key (back to its default). Settings fixed by the environment, unknown keys and
+    the secret key are refused. The whole result is validated before the file is replaced, so a bad
+    change never reaches the disk. The file is rewritten (comments in it are not kept)."""
+    e = os.environ if env is None else env
+    path = config_path(e)
+    doc = _read_file(path)
+    by_key = {f"{o.section}.{o.key}": o for o in OPTIONS}
+    for key, value in updates.items():
+        opt = by_key.get(key)
+        if opt is None or not opt.editable:
+            raise ConfigError(f"{key} cannot be changed here")
+        if _env_value(opt, e) is not None:
+            raise ConfigError(f"{key} is set by the environment variable {opt.env}; change it there")
+        section = dict(doc.get(opt.section) or {})
+        if value is None or value == "":
+            section.pop(opt.key, None)
+        else:
+            coerced = _coerce(opt, value)
+            if opt.choices and coerced not in opt.choices:
+                raise ConfigError(f"{key} must be one of {', '.join(opt.choices)}")
+            section[opt.key] = coerced
+        doc[opt.section] = section
+    ordered = {}
+    for o in OPTIONS:
+        if o.key in (doc.get(o.section) or {}):
+            ordered.setdefault(o.section, {})[o.key] = doc[o.section][o.key]
+    text = ("# DVR Bridge settings. Written by the settings page; environment variables override it.\n"
+            + yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    try:
+        result = load(e, path=tmp)         # raises ConfigError with every problem
+    except ConfigError:
+        tmp.unlink(missing_ok=True)
+        raise
+    if dry_run:
+        tmp.unlink(missing_ok=True)
+    else:
+        os.replace(tmp, path)
+    return result
+
+
 def load(env: Mapping[str, str] | None = None, *, path: str | Path | None = None) -> Settings:
     e = os.environ if env is None else env
     data_dir = e.get(ENV_PREFIX + "DATA_DIR", "/data")
-    cfg_path = Path(path or e.get(ENV_PREFIX + "CONFIG") or Path(data_dir) / "config.yaml")
+    cfg_path = Path(path) if path else config_path(e)
     doc = _read_file(cfg_path)
 
     values: dict[str, Any] = {}

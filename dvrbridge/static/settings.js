@@ -3,7 +3,7 @@
   const list = document.getElementById('list'), msg = document.getElementById('msg');
   const NAME_RE = /^[A-Za-z0-9 \-_.'()&]+$/;
   const note = (t) => { msg.hidden = !t; msg.textContent = t || ''; };
-  const why = { dvr_refused: 'The DVR refused the change', dvr_unavailable: 'The DVR did not answer', dvr_login_refused: 'The DVR refused the gateway’s login' };
+  const why = { dvr_refused: 'The DVR refused the change', dvr_unavailable: 'The DVR did not answer', dvr_login_refused: 'The DVR refused DVR Bridge’s login' };
 
   function check(name, max) {
     const n = name.trim();
@@ -38,7 +38,7 @@
         else {
           status((j.detail || why[j.error] || 'Failed (HTTP ' + r.status + ')'), 'bad');
         }
-      } catch (e) { status('Could not reach the gateway', 'bad'); }
+      } catch (e) { status('Could not reach DVR Bridge', 'bad'); }
       inp.disabled = false; btn.disabled = inp.value.trim() === saved;
     });
     form.append(lab, inp, btn, st);
@@ -52,5 +52,5 @@
     list.textContent = '';
     document.getElementById('maxlen').textContent = 'up to ' + j.max_length;
     for (const c of j.channels) addRow(c);
-  } catch (e) { list.textContent = ''; note('Could not reach the gateway'); }
+  } catch (e) { list.textContent = ''; note('Could not reach DVR Bridge'); }
 })();

@@ -64,7 +64,7 @@ class Dvr9000Playback:
 
     async def open_session(self, channel: int, start: datetime, end: datetime,
                            stream: str = "Mainstream") -> Dvr9000Session:
-        """`channel` is 1-based (as everywhere in the gateway); the DVR wants 0-based."""
+        """`channel` is 1-based (as everywhere in DVR Bridge); the DVR wants 0-based."""
         st = self.stats
         if st.active >= self.max_concurrent:
             st.rejected += 1

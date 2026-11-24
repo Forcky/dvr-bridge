@@ -53,6 +53,7 @@ class FakeDvr:
         self.heartbeat_seen = False
         self.responses = {
             "/API/Login/DeviceInfo/Get": fixture("login_deviceinfo.json"),
+            "/API/SystemInfo/Base/Get": fixture("systeminfo_base.json"),
             "/API/Login/ChannelInfo/Get": fixture("login_channelinfo.json"),
             "/API/StorageConfig/Disk/Get": fixture("storageconfig_disk.json"),
             "/API/SystemInfo/Record/Get": fixture("systeminfo_record.json"),

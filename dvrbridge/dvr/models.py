@@ -17,6 +17,21 @@ def channel_number(name: str) -> int:
 
 
 @dataclass(frozen=True)
+class BaseInfo:
+    model: str
+    firmware: str
+    hardware: str
+
+    @classmethod
+    def parse(cls, data: dict[str, Any]) -> "BaseInfo":
+        return cls(
+            model=str(data.get("device_type") or data.get("device_name") or ""),
+            firmware=str(data.get("software_version", "")),
+            hardware=str(data.get("hardware_version", "")),
+        )
+
+
+@dataclass(frozen=True)
 class DeviceInfo:
     device_type: str
     channel_count: int

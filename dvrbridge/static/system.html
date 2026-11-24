@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System settings - DVR Bridge</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<header id="nav"></header>
+<main class="settings">
+  <nav class="tabs" id="tabs"><a href="/settings">Cameras</a><a href="/settings/system" class="on">System</a></nav>
+
+  <div class="card wide" id="wizard" hidden>
+    <h2>Connect to your DVR</h2>
+    <p class="hint">Enter your DVR's address and a DVR account, then test the connection. The default ports suit
+      most RaySharp-based DVRs; only change them if you changed them on the DVR.</p>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="card wide" id="testCard">
+    <h3>Test the DVR connection</h3>
+    <p class="hint">Uses the DVR settings above (a blank password means the saved one). Nothing is saved or changed on
+      the DVR.</p>
+    <div class="actions"><button type="button" id="test">Test connection</button><span id="testState"></span></div>
+    <ul class="checks" id="checks"></ul>
+  </div>
+
+  <div class="card wide">
+    <p class="notice" id="authWarn" hidden>You are changing how people log in. If the new settings are wrong you may
+      be locked out; keep a password login (<em>local_login</em>) on until you have tried the new way.</p>
+    <p id="saveMsg"></p>
+    <div class="actions">
+      <button class="primary" type="button" id="save">Save</button>
+      <span class="hint" id="changes"></span>
+    </div>
+    <p class="hint" id="fileNote"></p>
+  </div>
+</main>
+<script src="/static/mse.js"></script>
+<script src="/static/system.js"></script>
+</body></html>

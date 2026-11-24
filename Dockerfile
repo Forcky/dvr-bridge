@@ -29,4 +29,4 @@ EXPOSE 8099
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8099/healthz', timeout=3).status == 200 else 1)"]
 # --no-proxy-headers: client addresses come from auth.trusted_proxies only (dvrbridge/auth/netutil.py).
-CMD ["uvicorn", "--factory", "dvrbridge.main:create_app", "--host", "0.0.0.0", "--port", "8099", "--no-access-log", "--no-proxy-headers"]
+CMD ["uvicorn", "--factory", "dvrbridge.server:create_server", "--host", "0.0.0.0", "--port", "8099", "--no-access-log", "--no-proxy-headers"]

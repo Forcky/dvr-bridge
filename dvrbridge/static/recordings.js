@@ -14,9 +14,9 @@
 
   // ---- player ---------------------------------------------------------------
   const player = $('player'), pv = $('pv'), dl = $('dl');
-  const ERR = { busy: 'The gateway is already playing the maximum number of clips. Try again in a moment.',
+  const ERR = { busy: 'DVR Bridge is already playing the maximum number of clips. Try again in a moment.',
     dvr_refused: 'The DVR refused to play that clip.', no_footage: 'The DVR has no video for that clip.',
-    dvr_unavailable: 'The DVR media port did not answer.', dvr_login_refused: 'The DVR refused the gateway’s media login.',
+    dvr_unavailable: 'The DVR media port did not answer.', dvr_login_refused: 'The DVR refused DVR Bridge’s media login.',
     dvr_stalled: 'The DVR stopped sending video part-way through.' };
   let current = null;
   const clearOn = () => document.querySelectorAll('.on:not(.zb)').forEach(e => e.classList.remove('on'));

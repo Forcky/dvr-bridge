@@ -18,7 +18,8 @@ ORIGIN = {"Origin": "http://gw"}
 # ---- allow-list ---------------------------------------------------------------------------
 def test_allowlist_is_exactly_the_known_endpoints():
     assert ALLOWED_PATHS == frozenset({
-        "/API/Web/Login", "/API/Login/Heartbeat", "/API/Login/DeviceInfo/Get", "/API/Login/ChannelInfo/Get",
+        "/API/Web/Login", "/API/Login/Heartbeat", "/API/Login/DeviceInfo/Get", "/API/SystemInfo/Base/Get",
+        "/API/Login/ChannelInfo/Get",
         "/API/StorageConfig/Disk/Get", "/API/SystemInfo/Record/Get", "/API/Playback/SearchRecord/Search",
         "/API/Event/Check", "/API/ChannelConfig/OSD/Get", "/API/ChannelConfig/OSD/Range",
         "/API/ChannelConfig/OSD/Set"})

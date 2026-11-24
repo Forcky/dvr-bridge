@@ -5,9 +5,10 @@ from .client import (
     DvrError,
     DvrUnavailable,
 )
-from .models import ChannelInfo, Clip, DeviceInfo, DiskInfo, EventState
+from .models import BaseInfo, ChannelInfo, Clip, DeviceInfo, DiskInfo, EventState
 
 __all__ = [
+    "BaseInfo",
     "ChannelInfo",
     "Clip",
     "DeviceInfo",

@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import os
 import time
+from typing import Callable, Mapping
 from contextlib import asynccontextmanager
 import re
 from datetime import date, datetime, timedelta
@@ -13,12 +15,15 @@ from zoneinfo import ZoneInfo
 
 import websockets
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
 
-from .config import Settings
+from .config import ConfigError, Settings, config_path, schema, valid_host
+from .config import save as save_settings
+from .connection_test import Target
+from .connection_test import run as run_connection_test
 from .channels import InvalidName, csrf_problem, validate_name
 from .dvr import DvrApiError, DvrAuthError, DvrClient, DvrError
 from .dvr.client import DEFAULT_NAME_MAX_LEN
@@ -50,12 +55,20 @@ def create_app(
     playback: PlaybackProvider | None = None,
     media: MainSession | None = None,
     auth: AuthService | None = None,
+    env: Mapping[str, str] | None = None,
+    request_reload: Callable[[], None] | None = None,
 ) -> FastAPI:
-    s = settings or Settings.from_env()
+    """The app for one configuration. ``request_reload`` (from dvrbridge.server) rebuilds it after the
+    settings page saves a change; ``env`` is where settings are read from and saved to."""
+    s = settings or Settings.from_env(env)
+    env = dict(os.environ if env is None else env)
+    env.setdefault("DVRBRIDGE_DATA_DIR", s.data_dir)
+    configured = s.dvr_configured
     if auth is None:
         # With auth.mode none there are no accounts to keep; the audit log lives in memory.
         auth = AuthService(s, store=Store(":memory:") if s.auth_mode == "none" else None)
-    dvr = dvr or DvrClient(s.dvr_host, s.dvr_user, s.dvr_password, port=s.dvr_port)
+    # Not configured yet: a placeholder client that is never started or called.
+    dvr = dvr or DvrClient(s.dvr_host or "unconfigured.invalid", s.dvr_user, s.dvr_password, port=s.dvr_port)
     monitor = Monitor(dvr, interval=s.poll_interval)
 
     def channel_count() -> int:
@@ -76,14 +89,18 @@ def create_app(
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
         auth.startup()
-        await dvr.start()
-        await monitor.start()
-        await g2r.start()
+        if configured:
+            await dvr.start()
+            await monitor.start()
+            await g2r.start()
+        else:
+            log.warning("No DVR configured yet: an admin can set it up on the Settings page")
         try:
             yield
         finally:
-            await g2r.stop()
-            await monitor.stop()
+            if configured:
+                await g2r.stop()
+                await monitor.stop()
             await dvr.close()
             if media is not None:
                 await media.close()
@@ -97,6 +114,10 @@ def create_app(
     def audit(request: Request, action: str, detail: str) -> None:
         user = request.state.user
         auth.store.audit(action, user.username if user else None, detail, request.state.client_ip)
+
+    def not_configured() -> JSONResponse:
+        return JSONResponse({"error": "not_configured", "detail": "No DVR is set up yet. An admin can add it under Settings."},
+                            status_code=503)
 
     @app.middleware("http")
     async def static_revalidate(request, call_next):
@@ -138,6 +159,7 @@ def create_app(
     async def channels() -> dict:
         names = monitor.channel_names(channel_count())
         return {
+            "configured": configured,
             "dvr_up": monitor.up,
             "channels": [{"channel": n, "name": names[n]} for n in sorted(names)],
             "today": datetime.now(tz).date().isoformat(),
@@ -145,6 +167,8 @@ def create_app(
 
     @app.get("/api/recordings")
     async def recordings(day: str = Query(..., alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")):
+        if not configured:
+            return not_configured()
         try:
             d = date.fromisoformat(day)
         except ValueError:
@@ -186,12 +210,14 @@ def create_app(
             return JSONResponse({"error": "dvr_refused", "detail": f"The DVR refused {what} ({e.result})."},
                                 status_code=502)
         if isinstance(e, DvrAuthError):
-            return JSONResponse({"error": "dvr_login_refused", "detail": "The DVR refused the gateway's login."},
+            return JSONResponse({"error": "dvr_login_refused", "detail": "The DVR refused DVR Bridge's login (check the DVR username and password in Settings)."},
                                 status_code=503)
         return JSONResponse({"error": "dvr_unavailable", "detail": "The DVR did not answer."}, status_code=502)
 
     @app.get("/api/settings/channels")
     async def settings_channels():
+        if not configured:
+            return not_configured()
         try:
             names, limits = await dvr.osd_overview()
         except DvrError as e:
@@ -208,6 +234,8 @@ def create_app(
         problem = csrf_problem(request.headers)
         if problem:
             return JSONResponse({"error": "forbidden", "detail": problem}, status_code=403)
+        if not configured:
+            return not_configured()
         if not 1 <= channel <= channel_count():
             return JSONResponse({"error": "no_such_channel", "detail": f"channel must be 1-{channel_count()}"},
                                 status_code=404)
@@ -245,6 +273,8 @@ def create_app(
 
     async def clip_response(request: Request, channel: int, start: datetime, end: datetime, stream: str,
                             filename: str | None):
+        if not configured:
+            return not_configured()
         start, end = local_naive(start).replace(microsecond=0), local_naive(end).replace(microsecond=0)
         if end <= start or end - start > MAX_RANGE:
             return JSONResponse({"error": "bad_range",
@@ -267,7 +297,7 @@ def create_app(
                                 status_code=404)
         except Dvr9000AuthError:
             return JSONResponse({"error": "dvr_login_refused",
-                                 "detail": "The DVR refused the gateway's media login."}, status_code=503)
+                                 "detail": "The DVR refused DVR Bridge's media login (check the DVR username and password in Settings)."}, status_code=503)
         except Dvr9000Error as e:
             log.warning("playback open failed: %s", e)
             return JSONResponse({"error": "dvr_unavailable", "detail": "The DVR media port did not answer."},
@@ -329,7 +359,7 @@ def create_app(
         if origin and host and origin.split("://", 1)[-1] != host:
             await ws.close(code=1008)
             return
-        if kind not in STREAM_KINDS or not 1 <= channel <= channel_count():
+        if not configured or kind not in STREAM_KINDS or not 1 <= channel <= channel_count():
             await ws.close(code=1008)
             return
         await ws.accept()
@@ -367,16 +397,100 @@ def create_app(
             except Exception:
                 pass
 
+    # ---- system settings (admins; /api/settings/* is admin-only in the auth gate) ----
+    test_lock = asyncio.Lock()
+    last_test = [0.0]
+
+    @app.get("/api/settings/system")
+    async def system_settings():
+        return {"configured": configured, "options": schema(s), "config_file": str(config_path(env))}
+
+    @app.put("/api/settings/system")
+    async def save_system_settings(request: Request):
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        updates = body.get("updates") if isinstance(body, dict) else None
+        if not isinstance(updates, dict) or not updates:
+            return JSONResponse({"error": "bad_request", "detail": 'send {"updates": {"section.key": value}}'},
+                                status_code=400)
+        try:
+            proposed = save_settings(updates, env, dry_run=True)
+        except ConfigError as e:
+            return JSONResponse({"error": "invalid", "detail": str(e), "problems": str(e).split("; ")},
+                                status_code=400)
+        user = request.state.user
+        if proposed.auth_mode == "none" and s.auth_mode != "none":
+            return JSONResponse({"error": "refused", "detail": "auth.mode none turns logins off for everyone; it "
+                                 "can only be set in the config file or environment."}, status_code=400)
+        if proposed.auth_mode in ("oidc", "header") and not proposed.local_login and user.source == "local":
+            return JSONResponse({"error": "refused", "detail": f"Keep password logins on until you have logged in "
+                                 f"as an admin through {proposed.auth_mode} once - otherwise a mistake in its "
+                                 f"settings would lock everyone out."}, status_code=400)
+        save_settings(updates, env)
+        audit(request, "settings_changed", ", ".join(sorted(updates)))
+        log.info("settings changed by %s: %s", user.username, ", ".join(sorted(updates)))
+        if request_reload:
+            request_reload()
+        return {"ok": True, "reloading": bool(request_reload),
+                "detail": "Saved. Applying now; live video reconnects in a few seconds."
+                if request_reload else "Saved. Restart DVR Bridge to apply."}
+
+    @app.post("/api/settings/test-dvr")
+    async def test_dvr(request: Request):
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        body = body if isinstance(body, dict) else {}
+
+        def num(key: str, default: int) -> int:
+            try:
+                v = int(body.get(key) or default)
+            except (TypeError, ValueError):
+                v = 0
+            return v if 1 <= v <= 65535 else 0
+
+        host = str(body.get("host") or s.dvr_host or "").strip()
+        target = Target(host=host, http_port=num("http_port", s.dvr_port), media_port=num("media_port", s.dvr_media_port),
+                        rtsp_port=num("rtsp_port", s.rtsp_port),
+                        username=str(body.get("username") or s.dvr_user),
+                        # a blank password means "the one already saved", which the page never sees
+                        password=str(body.get("password") or s.dvr_password))
+        if not host or not target.password or 0 in (target.http_port, target.media_port, target.rtsp_port):
+            return JSONResponse({"error": "bad_request", "detail": "Enter the DVR address, ports and password first."},
+                                status_code=400)
+        if not valid_host(host):
+            return JSONResponse({"error": "bad_request", "detail": "That is not a valid address."}, status_code=400)
+        if test_lock.locked() or time.monotonic() - last_test[0] < 3:
+            return JSONResponse({"error": "busy", "detail": "A test is already running; try again in a moment."},
+                                status_code=429)
+        async with test_lock:
+            last_test[0] = time.monotonic()
+            result = await run_connection_test(target)
+        audit(request, "dvr_test", f"{host}: {'ok' if result['ok'] else 'failed'}")
+        return result
+
     # ---- pages -----------------------------------------------------------
-    def page(name: str):
-        async def handler() -> FileResponse:
+    def page(name: str, needs_dvr: bool = False):
+        async def handler(request: Request):
+            if needs_dvr and not configured:
+                user = request.state.user
+                if user and user.is_admin:
+                    return RedirectResponse("/settings/system?wizard=1", status_code=302)
+                return HTMLResponse('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+                                    '<link rel="stylesheet" href="/static/style.css"><main><div class="card"><h2>Not set up yet'
+                                    '</h2><p>An admin needs to connect DVR Bridge to the DVR first.</p></div></main>',
+                                    status_code=503)
             return FileResponse(STATIC / name, headers={"Cache-Control": "no-cache"})
 
         return handler
 
-    app.add_api_route("/", page("index.html"), include_in_schema=False)
-    app.add_api_route("/camera/{channel}", page("camera.html"), include_in_schema=False)
-    app.add_api_route("/recordings", page("recordings.html"), include_in_schema=False)
-    app.add_api_route("/settings", page("settings.html"), include_in_schema=False)
+    app.add_api_route("/", page("index.html", True), include_in_schema=False)
+    app.add_api_route("/camera/{channel}", page("camera.html", True), include_in_schema=False)
+    app.add_api_route("/recordings", page("recordings.html", True), include_in_schema=False)
+    app.add_api_route("/settings", page("settings.html", True), include_in_schema=False)
+    app.add_api_route("/settings/system", page("system.html"), include_in_schema=False)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app

@@ -103,7 +103,10 @@ printf '%s\n' 'your-dvr-password' > dvr_password.txt
 chmod 600 dvr_password.txt
 ```
 
-Edit `compose.yaml` and set at least:
+You can either put the DVR details in `compose.yaml` now, or leave them out and enter them in the
+browser in step 4 - DVR Bridge then starts with a **setup wizard** that tests the connection for you
+(remove the `DVRBRIDGE_DVR_*` lines and the `secrets` entries from `compose.yaml` if you go that way).
+To configure it in the file, edit `compose.yaml` and set at least:
 
 ```yaml
 DVRBRIDGE_DVR_HOST: 192.168.1.50        # your DVR's IP address
@@ -133,6 +136,10 @@ First start: no accounts yet. Create the admin account at http://<this host>:809
 Open `http://<server>:8099/` in a browser. You are sent to the login page, which links to **setup**.
 Enter the setup code from the log, choose an admin username and a password of at least 10 characters,
 and you are in. The code proves you run the server, so nobody else who finds the page first can claim it.
+
+If no DVR is configured yet, you land on **Connect to your DVR**: enter its address and a DVR account,
+press **Test connection** - each port and both logins are checked and the DVR's model, firmware and
+camera count are shown - then **Save and connect**.
 
 Then:
 - **Account** (your name, top right): turn on two-factor authentication with an authenticator app.
@@ -243,6 +250,13 @@ if you want to keep them across a rebuild of the machine.
 
 ## Configuration reference
 
+Admins can change all of these in the browser under **Settings, System**: changes are checked with the
+same rules as at start-up, saved to `/data/config.yaml` and applied within a few seconds without a
+restart (live video reconnects). Settings given as environment variables are shown there as locked, and
+secrets (passwords, tokens) are never sent back to the browser - leave them blank to keep them. The page
+rewrites `config.yaml`, so comments in it are not kept. For safety, the page will not switch logins off
+(`auth.mode: none`), nor turn password logins off before you have signed in through the new method.
+
 Settings come from, in order of precedence: environment variables, then `/data/config.yaml`, then the
 defaults below. Each setting `section.key` has an environment variable `DVRBRIDGE_<SECTION>_<KEY>`, and
 any of them can be read from a file by adding `_FILE` (for Docker secrets), e.g.
@@ -253,9 +267,9 @@ the container at start-up with a message naming it.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `dvr.host` | required | DVR address |
+| `dvr.host` | - | DVR address (without it, DVR Bridge starts in setup-wizard mode) |
 | `dvr.username` | `admin` | DVR account DVR Bridge logs in with |
-| `dvr.password` | required | its password |
+| `dvr.password` | - | its password |
 | `dvr.http_port` | `85` | DVR web/API port |
 | `dvr.media_port` | `9000` | DVR client port (recorded playback) |
 | `dvr.rtsp_port` | `554` | DVR RTSP port (live view) |
@@ -363,8 +377,10 @@ password is never logged or sent to the browser.
 **Project layout**
 
 ```
-dvrbridge/main.py        web app: routes, live-view proxy, playback endpoints
-dvrbridge/config.py      settings: defaults, config file, environment
+dvrbridge/server.py      entry point: rebuilds the app in place when settings change
+dvrbridge/main.py        web app: routes, live-view proxy, playback endpoints, settings API
+dvrbridge/config.py      settings: defaults, config file, environment, validation, saving
+dvrbridge/connection_test.py  the settings page's "Test connection"
 dvrbridge/auth/          logins, sessions, roles, OIDC, activity log
 dvrbridge/dvr/           DVR JSON API client
 dvrbridge/dvr9000/       port-9000 client protocol and the bit-permutation codec
@@ -411,6 +427,7 @@ Example alert for a camera that has gone dark, named in the alert:
 | Symptom | Likely cause |
 | --- | --- |
 | Container stops at start with a setting named in the log | that setting is missing or invalid; the message says which and why |
+| Not sure why it cannot reach the DVR | Settings, System, **Test connection**: it checks each port and both logins separately |
 | "DVR API unreachable" in the header | DVR address or port wrong, or the network/firewall blocks TCP 85 |
 | Log says the DVR refused the login | wrong DVR username/password; DVR Bridge waits before retrying so the account is not locked - fix the password and restart |
 | Live tiles stay on "connecting" | TCP 554 blocked, or your proxy does not pass WebSockets |

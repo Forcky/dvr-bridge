@@ -95,4 +95,17 @@ button.primary { background:var(--acc); border-color:var(--acc); color:#04121f; 
 .ok { color:#8be28b; }
 .qr { background:#fff; display:inline-block; padding:8px; border-radius:6px; margin:8px 0; }
 code.secret { word-break:break-all; background:var(--bg); padding:2px 6px; border-radius:4px; }
-td .tag { font-size:12px; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 5px; margin-left:4px; }
+td .tag { font-size:12px; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 5px; margin-left:4px; }.tabs { display:flex; gap:4px; margin:4px 0 12px; border-bottom:1px solid var(--line); }
+.tabs a { color:var(--dim); text-decoration:none; padding:6px 12px; border-bottom:2px solid transparent; }
+.tabs a.on, .tabs a:hover { color:var(--fg); border-bottom-color:var(--acc); }
+.opt { display:grid; grid-template-columns:minmax(160px, 240px) 1fr; gap:4px 16px; align-items:start; padding:8px 0; border-bottom:1px solid var(--line); }
+.opt .lbl { padding-top:7px; }
+.opt .help { color:var(--dim); font-size:13px; grid-column:2; }
+.opt .lock { color:var(--warn); font-size:12px; grid-column:2; }
+.opt input[type=text], .opt input[type=password], .opt input[type=number], .opt select { width:100%; max-width:440px; }
+.opt.changed .lbl { color:var(--acc); }
+.checks { list-style:none; padding:0; margin:10px 0; }
+.checks li { padding:4px 0; } .checks .ok::before { content:"✓ "; } .checks .err::before { content:"✗ "; }
+@media (max-width:600px) { .opt { grid-template-columns:1fr; } .opt .help, .opt .lock { grid-column:1; } }
+.card > h3:first-child { margin-top:0; }
+input:disabled, select:disabled { opacity:.55; cursor:not-allowed; }
