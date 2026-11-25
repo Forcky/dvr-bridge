@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from .. import __version__
 from . import passwords, totp
 from .oidc import FLOW_COOKIE, OidcError, read_flow, safe_next
 from .service import SESSION_COOKIE, AccessDenied, AuthService
@@ -207,7 +208,8 @@ def build_router(svc: AuthService) -> APIRouter:
         return {"username": u.username, "role": u.role, "source": u.source, "totp_enabled": u.totp_enabled,
                 "totp_required": s.totp == "required" and u.source == "local",
                 "can_change_password": u.source == "local" and bool(u.id), "mode": s.auth_mode,
-                "can_logout": s.auth_mode in ("local", "oidc") or bool(request.state.session_token)}
+                "can_logout": s.auth_mode in ("local", "oidc") or bool(request.state.session_token),
+                "version": __version__}
 
     @r.post("/api/account/password")
     async def change_password(request: Request):

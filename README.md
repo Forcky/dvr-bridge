@@ -94,12 +94,18 @@ System, Information) and what worked. That is how this table grows.
 - Network access from that machine to the DVR on TCP **85** (web API), **554** (RTSP, live view) and
   **9000** (client protocol, recorded playback).
 
-### 1. Get the code
+### 1. Get it
+
+Released versions are published as images for **linux/amd64** (PCs, most NAS) and **linux/arm64**
+(Raspberry Pi 4/5, recent Synology/QNAP). Get the example files from a clone:
 
 ```sh
 git clone https://github.com/forcky/dvr-bridge.git
 cd dvr-bridge
 ```
+
+The example compose file builds the image from the clone. To use a published image instead, replace
+`build: .` and `image: dvr-bridge:local` with `image: ghcr.io/forcky/dvr-bridge:0.1` (or `:latest`).
 
 ### 2. Configure
 
@@ -222,10 +228,9 @@ return {"ak_proxy": {"user_attributes": attrs, "is_superuser": request.user.is_s
 
 ### Updating
 
-```sh
-git pull
-docker compose up -d --build
-```
+Built from the clone: `git pull` then `docker compose up -d --build`. Using a published image:
+`docker compose pull` then `docker compose up -d`. What changed in each version is in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 Accounts, settings and the activity log live in the `/data` volume and are kept. Back that volume up
 if you want to keep them across a rebuild of the machine.

@@ -1,10 +1,21 @@
 # syntax=docker/dockerfile:1
-# Pinned: python 3.13 (bookworm slim, by digest), go2rtc 1.9.15 (sha256-verified), static ffmpeg 7.1.
-FROM python:3.13-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72 AS base
+# Builds for linux/amd64 and linux/arm64. Everything third-party is pinned: python 3.13 (bookworm
+# slim) and static ffmpeg 7.1 by multi-arch index digest, go2rtc 1.9.15 by per-architecture sha256.
+ARG TARGETARCH
 
+FROM scratch AS go2rtc-amd64
 ADD --checksum=sha256:20b46c6910734cb05ecefb234066f36868ff19b42ba1418a7a32e13a3e035712 --chmod=0755 \
-    https://github.com/AlexxIT/go2rtc/releases/download/v1.9.15/go2rtc_linux_amd64 /usr/local/bin/go2rtc
-COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /usr/local/bin/ffmpeg
+    https://github.com/AlexxIT/go2rtc/releases/download/v1.9.15/go2rtc_linux_amd64 /go2rtc
+
+FROM scratch AS go2rtc-arm64
+ADD --checksum=sha256:af416f22b21a24ab83b8d78642190b4932ae695b4e386853f11d1b0319781763 --chmod=0755 \
+    https://github.com/AlexxIT/go2rtc/releases/download/v1.9.15/go2rtc_linux_arm64 /go2rtc
+
+FROM go2rtc-${TARGETARCH} AS go2rtc
+
+FROM python:3.13-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72 AS base
+COPY --from=go2rtc /go2rtc /usr/local/bin/go2rtc
+COPY --from=mwader/static-ffmpeg:7.1@sha256:a8090df5f5608daef387e1b2e93b98aaacb4d92153ad904e7d715c725724fca4 /ffmpeg /usr/local/bin/ffmpeg
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DVRBRIDGE_DATA_DIR=/data
@@ -23,6 +34,15 @@ COPY tests/ ./tests/
 RUN pytest -q
 
 FROM base AS runtime
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="DVR Bridge" \
+      org.opencontainers.image.description="Modern browser UI for older RaySharp-family DVRs: live view, recordings, MP4 export" \
+      org.opencontainers.image.source="https://github.com/Forcky/dvr-bridge" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+ENV DVRBRIDGE_BUILD_REVISION=${REVISION}
 USER 10001:10001
 VOLUME /data
 EXPOSE 8099

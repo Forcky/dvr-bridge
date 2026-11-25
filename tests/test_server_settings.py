@@ -39,6 +39,15 @@ async def test_configured_channel_count_limits_the_ui(fake_dvr):
         assert r.status_code == 404
 
 
+async def test_build_info_metric_and_version(fake_dvr):
+    from dvrbridge import __version__
+
+    async with client_for(fake_dvr) as c:
+        text = (await c.get("/metrics")).text
+        assert f'dvrbridge_build_info{{version="{__version__}",revision="unknown"}} 1' in text
+        assert (await c.get("/api/me")).json()["version"] == __version__
+
+
 async def test_metrics_can_be_disabled(fake_dvr):
     async with client_for(fake_dvr, metrics_enabled=False) as c:
         assert (await c.get("/metrics")).status_code == 404

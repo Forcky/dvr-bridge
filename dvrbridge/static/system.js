@@ -31,7 +31,7 @@
   const wizard = !r.data.configured || new URLSearchParams(location.search).has('wizard');
   if (wizard) { $('wizard').hidden = false; if (!r.data.configured) $('tabs').hidden = true; }
   $('fileNote').textContent = 'Saved to ' + r.data.config_file + '. Settings marked "set by environment" can only be '
-    + 'changed where DVR Bridge is started (e.g. compose.yaml).';
+    + 'changed where DVR Bridge is started (e.g. compose.yaml).' + (me.version ? ' DVR Bridge ' + me.version + '.' : '');
 
   const opts = r.data.options;
   const inputs = {};          // key -> {opt, input, row}

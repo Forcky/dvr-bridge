@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
 
+from . import REVISION, __version__
 from .config import ConfigError, Settings, config_path, schema, valid_host
 from .config import save as save_settings
 from .connection_test import Target
@@ -113,7 +114,7 @@ def create_app(
                 await frigate.close()
             await auth.close()
 
-    app = FastAPI(title="dvr-bridge", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="dvr-bridge", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.auth = auth
     app.add_middleware(AuthGate, service=auth)
     app.include_router(build_router(auth))
@@ -150,8 +151,11 @@ def create_app(
             if not hmac.compare_digest(sent.encode(), f"Bearer {s.metrics_token}".encode()):
                 return PlainTextResponse("bearer token required\n", status_code=401,
                                          headers={"WWW-Authenticate": "Bearer"})
+        build = (f'# HELP dvrbridge_build_info Version and revision of this DVR Bridge; value is always 1.\n'
+                 f'# TYPE dvrbridge_build_info gauge\n'
+                 f'dvrbridge_build_info{{version="{__version__}",revision="{REVISION[:40]}"}} 1\n')
         return PlainTextResponse(
-            render_metrics(
+            build + render_metrics(
                 monitor.snapshot(
                     go2rtc_up=g2r.running,
                     playback=provider.stats,

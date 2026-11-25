@@ -1,0 +1,52 @@
+name: Compatibility report
+description: Tell us how DVR Bridge works with your DVR model - it grows the compatibility table.
+title: "Compatibility: <brand> <model>"
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Please do not paste passwords, IP addresses outside your LAN, serial numbers or MAC addresses.
+  - type: input
+    id: model
+    attributes:
+      label: Brand and model
+      placeholder: e.g. Swann DVR8-4580V
+    validations: { required: true }
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      description: On the DVR's own screen, usually System > Information.
+      placeholder: e.g. V8.1.0-20220301
+    validations: { required: true }
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware version (if shown)
+      placeholder: e.g. DM-307
+  - type: input
+    id: channels
+    attributes:
+      label: Number of cameras / channels
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works?
+      options:
+        - label: Live view (grid and single camera)
+        - label: Recordings list and timeline
+        - label: Playing a recorded clip
+        - label: Downloading a clip as MP4
+        - label: Renaming cameras
+        - label: Settings > System > Test connection passes every check
+  - type: input
+    id: version
+    attributes:
+      label: DVR Bridge version
+      description: Shown at the bottom of Settings > System.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Errors from `docker logs dvr-bridge` (check they contain no passwords), ports you had to change, quirks.
