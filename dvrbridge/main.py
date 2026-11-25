@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
 import time
@@ -21,7 +22,7 @@ from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
 
 from . import REVISION, __version__
-from .config import ConfigError, Settings, config_path, schema, valid_host
+from .config import BY_ATTR, ConfigError, Settings, config_path, schema, valid_host
 from .config import save as save_settings
 from .connection_test import Target
 from .connection_test import run as run_connection_test
@@ -41,12 +42,42 @@ from .playback import NoFootage, PlaybackNotImplemented, PlaybackProvider, Playb
 from .state import Monitor, render_metrics
 from .frigate import FrigateClient, FrigateError, camera_map
 from .auth.gate import AuthGate
+from .auth.netutil import is_trusted, parse_networks
 from .auth.routes import build_router
 from .auth.service import AuthService
 from .auth.store import Store
 
 STATIC = Path(__file__).parent / "static"
 log = logging.getLogger("dvrbridge")
+_CODECS_RE = re.compile(r"^[A-Za-z0-9.,]{0,200}$")
+
+
+def mse_request(text: str | None) -> str | None:
+    """The one message a browser may send to go2rtc through the live-view proxy, re-encoded; else None."""
+    if not text or len(text) > 400:
+        return None
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(doc, dict) or doc.get("type") != "mse":
+        return None
+    value = doc.get("value", "")
+    if not isinstance(value, str) or not _CODECS_RE.match(value):
+        return None
+    return json.dumps({"type": "mse", "value": value})
+
+
+def public_go2rtc_text(text: str) -> str:
+    """go2rtc's text messages for the browser. Its error text names internal addresses (the DVR's IP and
+    port), which viewers have no need to see."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return json.dumps({"type": "error", "value": "stream error"})
+    if isinstance(doc, dict) and doc.get("type") == "mse" and isinstance(doc.get("value"), str):
+        return text
+    return json.dumps({"type": "error", "value": "stream error"})
 
 
 def create_app(
@@ -88,6 +119,8 @@ def create_app(
     if frigate is None and s.frigate_url:
         frigate = FrigateClient(s.frigate_url, s.tz)
     detection_cache: dict[date, tuple[float, dict]] = {}
+    metrics_networks = parse_networks(s.metrics_allow)
+    live_sockets: dict[int, int] = {}     # user id -> open live-view websockets
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -146,11 +179,18 @@ def create_app(
     async def metrics(request: Request) -> PlainTextResponse:
         if not s.metrics_enabled:
             return PlainTextResponse("metrics are disabled\n", status_code=404)
-        if s.metrics_token:
-            sent = request.headers.get("authorization", "")
-            if not hmac.compare_digest(sent.encode(), f"Bearer {s.metrics_token}".encode()):
-                return PlainTextResponse("bearer token required\n", status_code=401,
-                                         headers={"WWW-Authenticate": "Bearer"})
+        # Camera names and what is (not) recording are not for strangers: the token, an address listed
+        # in monitoring.metrics_allow, or a signed-in admin.
+        sent = request.headers.get("authorization", "")
+        user = request.state.user
+        allowed = ((s.metrics_token and hmac.compare_digest(sent.encode(), f"Bearer {s.metrics_token}".encode()))
+                   or is_trusted(request.client.host if request.client else "", metrics_networks)
+                   # auth.mode none has no logins: there the token alone decides, as before.
+                   or (user is not None and user.is_admin and (s.auth_mode != "none" or not s.metrics_token)))
+        if not allowed:
+            return PlainTextResponse("metrics need the bearer token (monitoring.metrics_token), an address in "
+                                     "monitoring.metrics_allow, or an admin login\n", status_code=401,
+                                     headers={"WWW-Authenticate": "Bearer"})
         build = (f'# HELP dvrbridge_build_info Version and revision of this DVR Bridge; value is always 1.\n'
                  f'# TYPE dvrbridge_build_info gauge\n'
                  f'dvrbridge_build_info{{version="{__version__}",revision="{REVISION[:40]}"}} 1\n')
@@ -261,7 +301,7 @@ def create_app(
             status = 400 if "bad event id" in str(e) else 502 if "did not answer" in str(e) else 404
             return JSONResponse({"error": "no_snapshot", "detail": str(e)}, status_code=status)
         return Response(image, media_type="image/jpeg",
-                        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
+                        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
 
     # ---- settings: rename cameras (stored on the DVR) ----------------------
     def dvr_failure(e: DvrError, what: str) -> JSONResponse:
@@ -334,6 +374,9 @@ def create_app(
                             filename: str | None):
         if not configured:
             return not_configured()
+        if channel > channel_count():
+            return JSONResponse({"error": "no_such_channel", "detail": f"channel must be 1-{channel_count()}"},
+                                status_code=404)
         start, end = local_naive(start).replace(microsecond=0), local_naive(end).replace(microsecond=0)
         if end <= start or end - start > MAX_RANGE:
             return JSONResponse({"error": "bad_range",
@@ -421,7 +464,14 @@ def create_app(
         if not configured or kind not in STREAM_KINDS or not 1 <= channel <= channel_count():
             await ws.close(code=1008)
             return
+        # A handful of tabs per person is normal; hundreds of sockets from one account is not.
+        user = ws.scope.get("state", {}).get("user")
+        uid = user.id if user is not None else 0
+        if uid and live_sockets.get(uid, 0) >= max(8, 4 * channel_count()):
+            await ws.close(code=1013)
+            return
         await ws.accept()
+        live_sockets[uid] = live_sockets.get(uid, 0) + 1
         url = f"ws://127.0.0.1:{s.go2rtc_port}/api/ws?src={stream_name(channel, kind)}"
         try:
             async with websockets.connect(url, max_size=None, open_timeout=5) as up:
@@ -431,17 +481,18 @@ def create_app(
                         if isinstance(msg, bytes):
                             await ws.send_bytes(msg)
                         else:
-                            await ws.send_text(msg)
+                            await ws.send_text(public_go2rtc_text(msg))
 
                 async def upstream() -> None:
                     while True:
                         m = await ws.receive()
                         if m["type"] == "websocket.disconnect":
                             return
-                        if m.get("text") is not None:
-                            await up.send(m["text"])
-                        elif m.get("bytes") is not None:
-                            await up.send(m["bytes"])
+                        # The page only ever asks for MSE; nothing else of go2rtc's websocket API
+                        # (WebRTC offers and candidates, HLS, MP4...) is passed on.
+                        request = mse_request(m.get("text"))
+                        if request is not None:
+                            await up.send(request)
 
                 tasks = [asyncio.create_task(down()), asyncio.create_task(upstream())]
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -451,6 +502,11 @@ def create_app(
         except (OSError, websockets.WebSocketException, WebSocketDisconnect):
             pass
         finally:
+            left = live_sockets.get(uid, 1) - 1
+            if left > 0:
+                live_sockets[uid] = left
+            else:
+                live_sockets.pop(uid, None)
             try:
                 await ws.close()
             except Exception:
@@ -462,7 +518,8 @@ def create_app(
 
     @app.get("/api/settings/system")
     async def system_settings():
-        return {"configured": configured, "options": schema(s), "config_file": str(config_path(env))}
+        return {"configured": configured, "options": schema(s), "config_file": str(config_path(env)),
+                "warnings": auth.warnings()}
 
     @app.put("/api/settings/system")
     async def save_system_settings(request: Request):
@@ -487,6 +544,19 @@ def create_app(
             return JSONResponse({"error": "refused", "detail": f"Keep password logins on until you have logged in "
                                  f"as an admin through {proposed.auth_mode} once - otherwise a mistake in its "
                                  f"settings would lock everyone out."}, status_code=400)
+        if (proposed.auth_mode == "local" and s.auth_mode != "local" and auth.store.count_users()
+                and not auth.store.count_local_admins()):
+            return JSONResponse({"error": "refused", "detail": "Nobody could log in after this change: there is no "
+                                 "local admin account with a password. Turn on password logins (auth.local_login), "
+                                 "add a local admin on the Users page, then switch."}, status_code=400)
+        # The saved DVR password is only ever sent to the DVR it was saved for: pointing the bridge at
+        # another address (or other ports) needs the password typed in again.
+        moved = [BY_ATTR[a].key for a in ("dvr_host", "dvr_port", "dvr_media_port", "rtsp_port")
+                 if getattr(proposed, a) != getattr(s, a)]
+        if moved and s.dvr_password and proposed.dvr_host and not updates.get("dvr.password"):
+            return JSONResponse({"error": "refused", "detail": f"Enter the DVR password again to change the DVR "
+                                 f"{' and '.join(moved)}: the saved password is not sent to a different address."},
+                                status_code=400)
         save_settings(updates, env)
         audit(request, "settings_changed", ", ".join(sorted(updates)))
         log.info("settings changed by %s: %s", user.username, ", ".join(sorted(updates)))
@@ -512,11 +582,17 @@ def create_app(
             return v if 1 <= v <= 65535 else 0
 
         host = str(body.get("host") or s.dvr_host or "").strip()
-        target = Target(host=host, http_port=num("http_port", s.dvr_port), media_port=num("media_port", s.dvr_media_port),
-                        rtsp_port=num("rtsp_port", s.rtsp_port),
-                        username=str(body.get("username") or s.dvr_user),
-                        # a blank password means "the one already saved", which the page never sees
-                        password=str(body.get("password") or s.dvr_password))
+        ports = (num("http_port", s.dvr_port), num("media_port", s.dvr_media_port), num("rtsp_port", s.rtsp_port))
+        # A blank password means "the one already saved" (which the page never sees) - but only for the
+        # DVR it was saved for. Any other address or port must come with its own password, or the test
+        # would hand the saved one to whatever answers there.
+        same_dvr = bool(s.dvr_host) and (host.lower(), *ports) == (s.dvr_host.lower(), s.dvr_port, s.dvr_media_port, s.rtsp_port)
+        password = str(body.get("password") or (s.dvr_password if same_dvr else ""))
+        if host and not password and s.dvr_password and 0 not in ports:
+            return JSONResponse({"error": "bad_request", "detail": "Enter the DVR password to test a different "
+                                 "address or port: the saved password is only used for the saved DVR."}, status_code=400)
+        target = Target(host=host, http_port=ports[0], media_port=ports[1], rtsp_port=ports[2],
+                        username=str(body.get("username") or s.dvr_user), password=password)
         if not host or not target.password or 0 in (target.http_port, target.media_port, target.rtsp_port):
             return JSONResponse({"error": "bad_request", "detail": "Enter the DVR address, ports and password first."},
                                 status_code=400)

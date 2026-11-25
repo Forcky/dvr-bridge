@@ -5,10 +5,13 @@ hash, so they can be raised later without invalidating existing passwords.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import secrets
+
+from starlette.concurrency import run_in_threadpool
 
 LOG2_N, R, P = 15, 8, 1  # ~32 MB and tens of milliseconds per hash
 DKLEN = 32
@@ -56,3 +59,36 @@ def password_problem(password: str, username: str = "") -> str | None:
     if len(set(password)) < 4:
         return "That password is too repetitive."
     return None
+
+
+class HashingBusy(Exception):
+    """Too many password checks are already waiting; ask the client to retry."""
+
+
+class HashLimiter:
+    """Bounds how many scrypt computations run (each takes ~32 MB) and how many may wait.
+
+    Without it a burst of logins fills the whole thread pool with hashes at once - more memory than a
+    small container has. Two at a time is plenty for a household; the rest queue briefly or are refused."""
+
+    def __init__(self, concurrent: int = 2, waiting: int = 16) -> None:
+        self.concurrent, self.waiting = concurrent, waiting
+        self._sem = asyncio.Semaphore(concurrent)
+        self._pending = 0
+        self.peak = 0   # most hashes ever running at once (for tests)
+        self._running = 0
+
+    async def run(self, fn, *args):
+        if self._pending >= self.concurrent + self.waiting:
+            raise HashingBusy
+        self._pending += 1
+        try:
+            async with self._sem:
+                self._running += 1
+                self.peak = max(self.peak, self._running)
+                try:
+                    return await run_in_threadpool(fn, *args)
+                finally:
+                    self._running -= 1
+        finally:
+            self._pending -= 1

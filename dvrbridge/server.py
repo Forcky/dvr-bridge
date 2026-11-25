@@ -118,4 +118,7 @@ class ReloadingServer:
 
 
 def create_server() -> ReloadingServer:
+    # Everything this process writes (the database with password hashes and two-factor secrets, the
+    # settings file, go2rtc's config with the DVR password) is for its own user only.
+    os.umask(0o077)
     return ReloadingServer()

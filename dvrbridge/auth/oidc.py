@@ -107,11 +107,11 @@ class OidcClient:
             doc = json.loads(body)
         except ValueError:
             raise OidcError(f"The identity provider answered HTTP {status} without JSON.") from None
+        if not isinstance(doc, dict):
+            raise OidcError("The identity provider sent an unexpected response.")
         if status >= 400:
             detail = doc.get("error_description") or doc.get("error") or f"HTTP {status}"
             raise OidcError(f"The identity provider refused the request: {str(detail)[:200]}")
-        if not isinstance(doc, dict):
-            raise OidcError("The identity provider sent an unexpected response.")
         return doc
 
     async def discovery(self) -> dict:
@@ -183,8 +183,12 @@ class OidcClient:
 
     def _id_claims(self, id_token: str | None, issuer: str, nonce: str) -> dict:
         try:
-            _, payload, _sig = (id_token or "").split(".")
+            if not isinstance(id_token, str):
+                raise ValueError
+            _, payload, _sig = id_token.split(".")
             claims = json.loads(_b64url_decode(payload))
+            if not isinstance(claims, dict):
+                raise ValueError
         except (ValueError, TypeError):
             raise OidcError("The identity provider sent no usable ID token.") from None
         now = time.time()
@@ -205,12 +209,14 @@ class OidcClient:
         return claims
 
     def _identity(self, claims: dict) -> Identity:
-        raw = claims.get(self.s.oidc_username_claim) or claims.get("email") or claims.get("sub")
+        # An unverified e-mail address is whatever the user typed at the provider: not an identity.
+        email = claims.get("email") if claims.get("email_verified") is True else None
+        raw = claims.get(self.s.oidc_username_claim) or email or claims.get("sub")
         username = str(raw or "").strip()
-        if not 1 <= len(username) <= 64 or any(ord(c) < 32 for c in username):
+        if not 1 <= len(username) <= 64 or any(ord(c) < 32 or ord(c) == 127 for c in username):
             raise OidcError("The identity provider sent no usable username.")
         groups = claims.get(self.s.oidc_groups_claim) or []
         if isinstance(groups, str):
             groups = [g for g in groups.replace("|", ",").split(",")]
         groups = tuple(str(g).strip() for g in groups if str(g).strip()) if isinstance(groups, (list, tuple, str)) else ()
-        return Identity(username, groups, str(claims["sub"]))
+        return Identity(username, groups, f"{claims['iss']} {claims['sub']}")

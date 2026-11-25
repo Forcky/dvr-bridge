@@ -14,7 +14,7 @@
     'dvr.channels': 'Number of cameras', 'dvr.timezone': 'DVR time zone',
     'playback.max_concurrent': 'Clips at once', 'playback.max_range_hours': 'Longest clip (hours)',
     'monitoring.poll_interval': 'Status check interval (s)', 'monitoring.metrics_enabled': 'Prometheus metrics',
-    'monitoring.metrics_token': 'Metrics token', 'server.public_url': 'Public URL',
+    'monitoring.metrics_token': 'Metrics token', 'monitoring.metrics_allow': 'Metrics allowed from', 'server.public_url': 'Public URL',
     'auth.mode': 'Login method', 'auth.session_hours': 'Login lasts (hours)', 'auth.local_login': 'Password logins',
     'auth.totp': 'Authenticator codes', 'auth.oidc_issuer': 'Issuer URL', 'auth.oidc_client_id': 'Client ID',
     'auth.oidc_client_secret': 'Client secret', 'auth.oidc_scopes': 'Scopes', 'auth.oidc_username_claim': 'Username claim',
@@ -30,6 +30,7 @@
   if (!r.ok) { $('saveMsg').textContent = r.data.detail || 'Could not load settings.'; return; }
   const wizard = !r.data.configured || new URLSearchParams(location.search).has('wizard');
   if (wizard) { $('wizard').hidden = false; if (!r.data.configured) $('tabs').hidden = true; }
+  for (const w of (r.data.warnings || [])) $('sections').before(el('p', { class: 'notice' }, w));
   $('fileNote').textContent = 'Saved to ' + r.data.config_file + '. Settings marked "set by environment" can only be '
     + 'changed where DVR Bridge is started (e.g. compose.yaml).' + (me.version ? ' DVR Bridge ' + me.version + '.' : '');
 

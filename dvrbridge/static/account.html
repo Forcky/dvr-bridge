@@ -26,7 +26,11 @@
     <section id="totpSection" hidden>
       <h3>Two-factor authentication</h3>
       <p class="hint" id="totpState"></p>
-      <div class="actions" id="totpStart"><button type="button" id="begin">Set up an authenticator app</button></div>
+      <form id="totpStart">
+        <label for="beginPw">Password (to set up two-factor)</label>
+        <input type="password" id="beginPw" autocomplete="current-password" required>
+        <div class="actions"><button type="submit" id="begin">Set up an authenticator app</button><span id="beginMsg"></span></div>
+      </form>
       <div id="enrol" hidden>
         <p class="hint">Scan this with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password,
           Bitwarden...) or type the key in by hand, then enter the 6-digit code it shows.</p>

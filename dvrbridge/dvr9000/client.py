@@ -461,6 +461,7 @@ class PlaybackStream:
     async def frames(self) -> AsyncIterator[VideoFrame]:
         """Video frames until the end-of-clip marker. Non-video frames are skipped."""
         cur: tuple[int, int, dict[int, bytes]] | None = None
+        held = 0  # bytes buffered for the frame being reassembled
         while True:
             pkt = await self._read_packet()
             if pkt is None:
@@ -468,8 +469,14 @@ class PlaybackStream:
             _flags, count, fsize, idx, payload = pkt
             if fsize > MAX_FRAME:
                 raise Dvr9000Unavailable("implausible frame size")
+            if idx >= count:
+                continue  # not a fragment of this frame; it could never complete one
             if cur is None or cur[0] != fsize or cur[1] != count or (idx == 0 and cur[2]):
-                cur = (fsize, count, {})
+                cur, held = (fsize, count, {}), 0
+            held += len(payload) - len(cur[2].get(idx, b""))
+            # Whatever the header claims, never buffer more than one maximal frame.
+            if held > MAX_FRAME:
+                raise Dvr9000Unavailable("implausible frame size")
             cur[2][idx] = payload
             if len(cur[2]) == count:
                 try:

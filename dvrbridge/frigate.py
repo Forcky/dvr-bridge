@@ -107,7 +107,10 @@ class FrigateClient:
             cfg = (await self._get("/api/config")).json()
         except ValueError:
             raise FrigateError("Frigate's config was not JSON") from None
-        names = sorted(str(k) for k in (cfg.get("cameras") or {}))
+        cams = cfg.get("cameras") if isinstance(cfg, dict) else None
+        if not isinstance(cams, dict):
+            raise FrigateError("unexpected config response")
+        names = sorted(str(k) for k in cams)
         self._cameras = (time.monotonic(), names)
         return names
 
@@ -142,20 +145,20 @@ class FrigateClient:
                 data = ev.get("data") or {}
                 score = data.get("top_score") or ev.get("top_score") or data.get("score") or 0
                 out.append(Detection(str(ev["id"]), ch, str(ev["label"]), float(score), st, en, bool(ev.get("has_snapshot"))))
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, AttributeError):
                 continue
         out.sort(key=lambda d: d.start)
         return out, len(events) >= MAX_EVENTS
 
     async def snapshot(self, event_id: str, allowed_cameras: set[str]) -> bytes:
         """The event's snapshot (JPEG, with its box drawn), if the event belongs to a mapped camera."""
-        if not EVENT_ID.match(event_id or ""):
+        if not EVENT_ID.fullmatch(event_id or ""):
             raise FrigateError("bad event id")
         try:
             ev = (await self._get(f"/api/events/{event_id}")).json()
         except ValueError:
             raise FrigateError("Frigate's event was not JSON") from None
-        if ev.get("camera") not in allowed_cameras or not ev.get("has_snapshot"):
+        if not isinstance(ev, dict) or ev.get("camera") not in allowed_cameras or not ev.get("has_snapshot"):
             raise FrigateError("no snapshot for that event")
         r = await self._get(f"/api/events/{event_id}/snapshot.jpg", {"bounding_box": 1, "height": 360}, MAX_IMAGE)
         if not r.headers.get("content-type", "").startswith("image/jpeg"):

@@ -103,7 +103,7 @@ def test_bad_config_files(tmp_path, text, message):
 def test_auth_defaults_and_file(tmp_path):
     s = load(env(tmp_path))
     assert (s.auth_mode, s.session_hours, s.local_login, s.totp) == ("local", 12, True, "optional")
-    (tmp_path / "config.yaml").write_text("auth:\n  mode: header\n  trusted_proxies: 172.28.3.0/24, 10.0.0.1\n",
+    (tmp_path / "config.yaml").write_text("auth:\n  mode: header\n  trusted_proxies: 172.28.3.7, 10.0.0.1\n",
                                           encoding="utf-8")
     s = load(env(tmp_path))
     assert s.auth_mode == "header" and s.sources["trusted_proxies"] == "file"
@@ -120,6 +120,8 @@ def test_auth_defaults_and_file(tmp_path):
       "DVRBRIDGE_SERVER_PUBLIC_URL": "https://cams.example.com"}, "must be an https"),
     ({"DVRBRIDGE_AUTH_MODE": "header"}, "needs auth.header_secret or auth.trusted_proxies"),
     ({"DVRBRIDGE_AUTH_MODE": "header", "DVRBRIDGE_AUTH_HEADER_SECRET": "short"}, "at least 32"),
+    ({"DVRBRIDGE_AUTH_MODE": "header", "DVRBRIDGE_AUTH_TRUSTED_PROXIES": "172.18.0.0/16"}, "single addresses"),
+    ({"DVRBRIDGE_MONITORING_METRICS_ALLOW": "prometheus"}, "monitoring.metrics_allow"),
     ({"DVRBRIDGE_AUTH_MODE": "header", "DVRBRIDGE_AUTH_TRUSTED_PROXIES": "10.0.0.0/8, nonsense"}, "nonsense"),
 ])
 def test_auth_validation(tmp_path, extra, message):

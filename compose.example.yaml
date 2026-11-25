@@ -12,6 +12,8 @@ services:
       DVRBRIDGE_DVR_PASSWORD_FILE: /run/secrets/dvr_password
       DVRBRIDGE_DVR_TIMEZONE: Europe/London     # the time zone the DVR's clock is set to
       # DVRBRIDGE_SERVER_PUBLIC_URL: https://cameras.example.com
+      # DVRBRIDGE_AUTH_TRUSTED_PROXIES: 172.18.0.5             # your reverse proxy's address (needed behind a proxy)
+      # /metrics is closed to anonymous requests; give Prometheus a token (or list it in metrics_allow):
       # DVRBRIDGE_MONITORING_METRICS_TOKEN_FILE: /run/secrets/metrics_token
     secrets:
       - dvr_password

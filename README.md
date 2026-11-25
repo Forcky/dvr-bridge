@@ -176,8 +176,15 @@ The setup we recommend:
 ### Behind a reverse proxy (HTTPS)
 
 Set `DVRBRIDGE_SERVER_PUBLIC_URL` to the address people use (e.g. `https://cameras.example.com`) and
-`DVRBRIDGE_AUTH_TRUSTED_PROXIES` to the proxy's address, so login throttling and the activity log see
-real client addresses. The proxy must pass WebSockets (live view uses them).
+`DVRBRIDGE_AUTH_TRUSTED_PROXIES` to the proxy's address. **Both are needed behind any proxy, whichever
+login mode you use**: without `trusted_proxies` every visitor appears to come from the proxy, so login
+throttling cannot tell an attacker from you and the activity log shows the proxy's address for everything
+(DVR Bridge warns about this in its log and on the Settings page). With it, the real client address is
+taken from `X-Forwarded-For` and the session cookie is marked `Secure` when the proxy says the browser
+used HTTPS (`X-Forwarded-Proto`). The proxy must pass WebSockets (live view uses them).
+
+`/metrics` is not served to anonymous visitors (see [Monitoring](#monitoring)), so it is safe to proxy
+every path. Request bodies are limited to 64 KB by DVR Bridge itself.
 
 **Caddy**
 
@@ -212,10 +219,13 @@ DVRBRIDGE_AUTH_HEADER_USER: X-authentik-username
 DVRBRIDGE_AUTH_HEADER_GROUPS: X-authentik-groups
 DVRBRIDGE_AUTH_HEADER_ADMIN_GROUP: cctv-admins
 DVRBRIDGE_AUTH_HEADER_SECRET_FILE: /run/secrets/proxy_secret   # 32+ random characters
-DVRBRIDGE_AUTH_TRUSTED_PROXIES: 172.18.0.0/16                   # your proxy/outpost network
+DVRBRIDGE_AUTH_TRUSTED_PROXIES: 172.18.0.5                      # your proxy/outpost's own address
 ```
 
-The shared secret stops anything other than your proxy from sending those headers. In Authentik, add a
+The shared secret stops anything other than your proxy from sending those headers - including other
+containers on the same Docker network, which could otherwise sign in as anyone just by sending the
+username header. Without a secret, `trusted_proxies` must list single addresses (the proxy itself), not
+a whole network; with one, it is an extra restriction and may be a network. In Authentik, add a
 scope mapping to the provider that sends it:
 
 ```python
@@ -243,7 +253,7 @@ if you want to keep them across a rebuild of the machine.
 | --- | --- | --- |
 | `local` (default) | accounts kept by DVR Bridge | `auth.totp: required` makes authenticator codes mandatory |
 | `oidc` | your identity provider | needs `oidc_issuer`, `oidc_client_id`, `oidc_client_secret` and `server.public_url`; the redirect URI to register is `<public_url>/auth/oidc/callback` |
-| `header` | your reverse proxy | needs `header_secret` and/or `trusted_proxies`, so the headers cannot be forged |
+| `header` | your reverse proxy | needs `header_secret` (recommended), or `trusted_proxies` listing the proxy's single address, so the headers cannot be forged |
 | `none` | everyone who can reach it, as admin | only behind a proxy that already authenticates; logs a warning at every start |
 
 - In `oidc` and `header` mode, members of the admin group (`oidc_admin_group` / `header_admin_group`)
@@ -253,8 +263,21 @@ if you want to keep them across a rebuild of the machine.
 - `auth.local_login: true` keeps password logins available alongside SSO or headers, so a local admin
   can still get in if the identity provider is down.
 - A single sign-on or proxy login can never take over a local account with the same username.
-- Failed logins are slowed down per address and per account. Locked-out admins can wait 15 minutes or
-  restart the container.
+- A single sign-on account is tied to the identity provider's permanent user id (`sub`), not to the
+  username: renaming someone at the provider keeps their account, and someone else taking an existing
+  username is refused. An e-mail address is only used as the username if the provider marks it verified.
+  In `header` mode the username the proxy sends *is* the identity, so the proxy must not let users choose it.
+- Single sign-on and proxy users are checked when they sign in: removing someone at the identity provider,
+  or changing their groups, takes effect at their next login (`auth.session_hours` at the latest in `oidc`
+  mode). To cut someone off at once, disable them on the Users page.
+- If the identity provider's groups demote the last admin, or the only admin can no longer sign in, recover
+  with the local break-glass login (`auth.local_login`) or the lost-password steps below.
+- Roles are admin and viewer; every viewer can see every camera (there are no per-camera permissions).
+- Failed logins are slowed down per address and per account, and wrong two-factor codes per account (5
+  wrong codes lock the code step for 15 minutes, whatever address they come from). Locked-out admins can
+  wait 15 minutes or restart the container.
+- Setting up, replacing or turning off two-factor asks for the account's password (and, to replace it, a
+  code from the current authenticator).
 - **Lost the only admin password?** Stop the container, delete `dvrbridge.db` (and `dvrbridge.db-wal` /
   `dvrbridge.db-shm` if present) from the data volume - this removes all accounts and the activity log -
   start it again and use the new setup code from the log.
@@ -266,7 +289,10 @@ same rules as at start-up, saved to `/data/config.yaml` and applied within a few
 restart (live video reconnects). Settings given as environment variables are shown there as locked, and
 secrets (passwords, tokens) are never sent back to the browser - leave them blank to keep them. The page
 rewrites `config.yaml`, so comments in it are not kept. For safety, the page will not switch logins off
-(`auth.mode: none`), nor turn password logins off before you have signed in through the new method.
+(`auth.mode: none`), nor turn password logins off before you have signed in through the new method, nor
+switch to password logins while no local admin exists. Changing the DVR address or ports needs the DVR
+password typed in again (and the connection test only uses the saved password for the saved DVR), so the
+saved password is never sent to a different machine.
 
 Settings come from, in order of precedence: environment variables, then `/data/config.yaml`, then the
 defaults below. Each setting `section.key` has an environment variable `DVRBRIDGE_<SECTION>_<KEY>`, and
@@ -295,7 +321,8 @@ the container at start-up with a message naming it.
 | `playback.max_range_hours` | `3` | longest clip that can be played or downloaded |
 | `monitoring.poll_interval` | `60` | seconds between DVR status checks |
 | `monitoring.metrics_enabled` | `true` | serve `/metrics` |
-| `monitoring.metrics_token` | empty | if set, `/metrics` needs `Authorization: Bearer <token>` |
+| `monitoring.metrics_token` | empty | `/metrics` is served to requests carrying `Authorization: Bearer <token>` |
+| `monitoring.metrics_allow` | empty | comma-separated addresses/networks (e.g. your Prometheus) that may read `/metrics` without the token |
 | `server.public_url` | empty | external URL, e.g. `https://cameras.example.com` |
 | `server.secret_key` | generated | signs login state; generated into `/data/secret.key` if not set |
 
@@ -331,7 +358,7 @@ Frigate - snapshots are served through DVR Bridge's own login.
 | `auth.header_admin_group` | empty | members are admins |
 | `auth.header_secret` | empty | shared secret the proxy must send (32+ characters) |
 | `auth.header_secret_name` | `X-DVR-Bridge-Proxy-Secret` | header carrying that secret |
-| `auth.trusted_proxies` | empty | comma-separated addresses/networks of your proxies |
+| `auth.trusted_proxies` | empty | comma-separated addresses/networks of your proxies; set it behind any reverse proxy |
 
 Also: `DVRBRIDGE_DATA_DIR` (default `/data`) and `DVRBRIDGE_CONFIG` (default `/data/config.yaml`).
 
@@ -419,7 +446,18 @@ tests/                   test suite with fake DVRs
 `GET /healthz` returns `ok` when the web app is running (it says nothing about the DVR, so it is safe to
 expose to a health checker).
 
-`GET /metrics` serves Prometheus metrics from the cached poll:
+`GET /metrics` serves Prometheus metrics from the cached poll. They include camera names and whether each
+camera is recording, so they are **not public**: a request needs the bearer token
+(`monitoring.metrics_token`), or to come from an address in `monitoring.metrics_allow`, or a signed-in
+admin's session. Anything else gets `401`. A Prometheus scrape job:
+
+```yaml
+- job_name: dvr-bridge
+  authorization: { credentials_file: /run/secrets/dvrbridge_metrics_token }
+  static_configs: [{ targets: ["dvr-bridge:8099"] }]
+```
+
+(With `auth.mode: none` there are no logins, so `/metrics` is open unless a token is set.)
 
 | Metric | Meaning |
 | --- | --- |
