@@ -199,8 +199,11 @@ async def test_test_endpoint_validates_and_throttles(fake_dvr, tmp_path, monkeyp
         post = lambda body: c.post("/api/settings/test-dvr", content=json.dumps(body), headers=JSON)  # noqa: E731
         assert (await post({"host": "bad host!"})).status_code == 400
         assert (await post({"host": "192.0.2.20", "http_port": "0"})).status_code == 400
-        assert (await post({"host": "192.0.2.20"})).status_code == 200
-        assert calls[-1].password == "saved-pw" and calls[-1].host == "192.0.2.20"   # blank = saved password
+        r = await post({"host": "192.0.2.20"})                       # the saved password is not sent to another address
+        assert r.status_code == 400 and "password" in r.json()["detail"] and not calls
+        assert (await post({"media_port": 9001})).status_code == 400 and not calls   # ... or another port
+        assert (await post({})).status_code == 200
+        assert calls[-1].password == "saved-pw" and calls[-1].host == "192.0.2.10"   # blank = saved password, saved DVR
         assert (await post({})).status_code == 429                                  # too soon after the last one
 
 

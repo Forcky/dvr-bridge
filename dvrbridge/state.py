@@ -55,6 +55,9 @@ class Monitor:
         except DvrError as e:
             self.up = False
             log.warning("DVR poll failed: %s", e)
+        except Exception as e:  # noqa: BLE001 - a reply we cannot parse must not end the poller
+            self.up = False
+            log.warning("DVR poll failed: unexpected reply (%s)", type(e).__name__)
 
     async def refresh_channels(self, renamed: tuple[int, str] | None = None) -> None:
         """Re-read the channel list now (after a rename) instead of waiting for the 10-minute refresh.

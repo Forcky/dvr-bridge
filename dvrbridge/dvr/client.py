@@ -64,6 +64,7 @@ ALLOWED_PATHS = frozenset(
     }
 )
 
+MAX_RESPONSE = 8 * 1024 * 1024  # a day's search for 16+ channels is well under 1 MB
 DEFAULT_NAME_MAX_LEN = 31  # what the real DVR's OSD/Range reports; used only if Range omits it
 
 
@@ -187,7 +188,14 @@ class DvrClient:
         if path not in ALLOWED_PATHS:
             raise DvrError(f"endpoint not allowed: {path}")
         try:
-            return await self._http.post(path, json=body, headers=headers or {})
+            # Read with a cap: whatever answers at the DVR's address must not be able to fill our memory.
+            async with self._http.stream("POST", path, json=body, headers=headers or {}) as r:
+                content = bytearray()
+                async for chunk in r.aiter_bytes():
+                    content += chunk
+                    if len(content) > MAX_RESPONSE:
+                        raise DvrUnavailable("oversized reply from the DVR")
+                return httpx.Response(r.status_code, headers=r.headers, content=bytes(content))
         except httpx.HTTPError as e:
             raise DvrUnavailable(f"{type(e).__name__} talking to DVR") from None
 
@@ -240,6 +248,8 @@ class DvrClient:
                 doc = r.json()
             except ValueError:
                 raise DvrApiError(path, "invalid_json") from None
+            if not isinstance(doc, dict):
+                raise DvrApiError(path, "invalid_json")
             result = str(doc.get("result", ""))
             if result == "no_heartbeat" and attempt == 1 and path != HEARTBEAT_PATH:
                 await self._call_locked(HEARTBEAT_PATH, None)
@@ -247,7 +257,10 @@ class DvrClient:
             if result != "success":
                 raise DvrApiError(path, result or "no_result")
             self.last_success = time.monotonic()
-            return doc.get("data") or {}
+            data = doc.get("data") or {}
+            if not isinstance(data, dict):
+                raise DvrApiError(path, "invalid_json")
+            return data
         raise DvrApiError(path, "retry_exhausted")  # pragma: no cover
 
     async def call(self, path: str, data: dict[str, Any] | None = None) -> dict[str, Any]:

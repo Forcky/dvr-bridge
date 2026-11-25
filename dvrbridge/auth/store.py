@@ -6,6 +6,7 @@ in. Calls are short and synchronous behind one lock; the app makes a handful per
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import sqlite3
 import threading
@@ -52,7 +53,16 @@ SCHEMA = [
     );
     CREATE INDEX audit_ts ON audit(ts);
     """,
+    # version 2: who an external (OIDC) account is at its identity provider - "<issuer> <sub>". The username
+    # there can change or be reused; the subject cannot. NULL for local and proxy accounts, and for OIDC
+    # accounts created before this version until their next login.
+    """
+    ALTER TABLE users ADD COLUMN subject TEXT;
+    CREATE UNIQUE INDEX users_subject ON users(subject) WHERE subject IS NOT NULL;
+    """,
 ]
+MAX_AUDIT_ROWS = 50_000
+AUDIT_PRUNE_EVERY = 200
 
 
 @dataclass(frozen=True)
@@ -100,6 +110,18 @@ class Store:
             if self.path != ":memory:":
                 self._db.execute("PRAGMA journal_mode = WAL")
             self._migrate()
+        self._audit_inserts = 0
+        self._restrict_files()
+
+    def _restrict_files(self) -> None:
+        """The database holds password hashes and two-factor secrets: owner-only, whatever the umask was."""
+        if self.path == ":memory:":
+            return
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.chmod(self.path + suffix, 0o600)
+            except OSError:
+                pass
 
     def close(self) -> None:
         with self._lock:
@@ -141,15 +163,32 @@ class Store:
         rows = self._q("SELECT * FROM users WHERE username = ?", (username,))
         return self._user(rows[0]) if rows else None
 
+    def find_subject(self, subject: str) -> User | None:
+        rows = self._q("SELECT * FROM users WHERE subject = ?", (subject,))
+        return self._user(rows[0]) if rows else None
+
+    def subject(self, user_id: int) -> str | None:
+        rows = self._q("SELECT subject FROM users WHERE id = ?", (user_id,))
+        return rows[0][0] if rows else None
+
+    def set_subject(self, user_id: int, subject: str) -> None:
+        self._x("UPDATE users SET subject = ? WHERE id = ?", (subject, user_id))
+
+    def count_local_admins(self) -> int:
+        """Enabled admins who can log in with a password."""
+        return self._q("SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0 AND source = 'local' "
+                       "AND password_hash IS NOT NULL")[0][0]
+
     def password_hash(self, user_id: int) -> str | None:
         rows = self._q("SELECT password_hash FROM users WHERE id = ?", (user_id,))
         return rows[0][0] if rows else None
 
-    def create_user(self, username: str, role: str, source: str, password_hash: str | None = None) -> User:
+    def create_user(self, username: str, role: str, source: str, password_hash: str | None = None,
+                    subject: str | None = None) -> User:
         if role not in ROLES or source not in SOURCES:
             raise ValueError("bad role or source")
-        cur = self._x("INSERT INTO users (username, password_hash, role, source, created_at) VALUES (?, ?, ?, ?, ?)",
-                      (username, password_hash, role, source, time.time()))
+        cur = self._x("INSERT INTO users (username, password_hash, role, source, created_at, subject) "
+                      "VALUES (?, ?, ?, ?, ?, ?)", (username, password_hash, role, source, time.time(), subject))
         return self.get_user(cur.lastrowid)
 
     def update_user(self, user_id: int, **fields) -> User | None:
@@ -221,11 +260,19 @@ class Store:
     def purge_expired(self) -> None:
         self._x("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
         self._x("DELETE FROM audit WHERE ts < ?", (time.time() - 365 * 86400,))
+        self.trim_audit()
 
     # ---- audit -------------------------------------------------------------------------------
     def audit(self, action: str, username: str | None = None, detail: str = "", ip: str = "") -> None:
         self._x("INSERT INTO audit (ts, username, action, detail, ip) VALUES (?, ?, ?, ?, ?)",
                 (time.time(), username, action, detail[:500], ip[:64]))
+        self._audit_inserts += 1
+        if self._audit_inserts % AUDIT_PRUNE_EVERY == 0:
+            self.trim_audit()
+
+    def trim_audit(self, keep: int = MAX_AUDIT_ROWS) -> None:
+        """Keep only the newest rows, so nobody can grow the log without bound."""
+        self._x("DELETE FROM audit WHERE id <= (SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET ?)", (keep,))
 
     def audit_log(self, limit: int = 200) -> list[dict]:
         rows = self._q("SELECT ts, username, action, detail, ip FROM audit ORDER BY id DESC LIMIT ?",

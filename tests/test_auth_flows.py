@@ -62,7 +62,7 @@ async def test_everything_needs_a_login_except_the_public_bits(fake_dvr, tmp_pat
         r = await c.get("/recordings?date=2026-11-22", headers=HTML)
         assert r.status_code == 302 and r.headers["location"] == "/login?next=%2Frecordings%3Fdate%3D2026-11-22"
         assert (await c.get("/healthz")).status_code == 200
-        assert (await c.get("/metrics")).status_code == 200
+        assert (await c.get("/metrics")).status_code == 401      # names the cameras: token, allowed address or admin
         assert (await c.get("/static/style.css")).status_code == 200
         assert (await c.get("/login")).status_code == 200
         cfg = (await c.get("/api/auth/config")).json()
@@ -119,14 +119,14 @@ async def test_failed_logins_are_throttled(fake_dvr, tmp_path):
 async def test_two_factor_enrol_and_login(fake_dvr, tmp_path):
     async with app_client(fake_dvr, tmp_path) as c:
         await setup_admin(c)
-        begin = (await post(c, "/api/account/totp/begin")).json()
+        assert (await post(c, "/api/account/totp/begin")).status_code == 403            # needs the password
+        begin = (await post(c, "/api/account/totp/begin", {"password": PW})).json()
         assert begin["qr_svg"].startswith("<svg") and begin["uri"].startswith("otpauth://")
         secret = begin["secret"]
-        bad = await post(c, "/api/account/totp/confirm", {"secret": secret, "code": "000000"})
+        bad = await post(c, "/api/account/totp/confirm", {"code": "000000"})
         assert bad.status_code == 400
         step = int(time.time() // 30)
-        assert (await post(c, "/api/account/totp/confirm",
-                           {"secret": secret, "code": totp.code_at(secret, step)})).status_code == 200
+        assert (await post(c, "/api/account/totp/confirm", {"code": totp.code_at(secret, step)})).status_code == 200
         await post(c, "/api/auth/logout")
 
         r = await post(c, "/api/auth/login", {"username": "alice", "password": PW})
@@ -188,8 +188,8 @@ async def test_required_two_factor_forces_enrolment(fake_dvr, tmp_path):
         assert r.status_code == 403 and r.json()["error"] == "totp_required"
         assert (await c.get("/", headers=HTML)).headers["location"] == "/account?enrol=1"
         assert (await c.get("/api/me")).json()["totp_required"] is True
-        secret = (await post(c, "/api/account/totp/begin")).json()["secret"]
-        await post(c, "/api/account/totp/confirm", {"secret": secret, "code": totp.code_at(secret, int(time.time() // 30))})
+        secret = (await post(c, "/api/account/totp/begin", {"password": PW})).json()["secret"]
+        await post(c, "/api/account/totp/confirm", {"code": totp.code_at(secret, int(time.time() // 30))})
         assert (await c.get("/api/channels")).status_code == 200
 
 

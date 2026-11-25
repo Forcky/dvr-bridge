@@ -20,7 +20,8 @@ playback:
 monitoring:
   # poll_interval: 60         # seconds between DVR status polls
   # metrics_enabled: true
-  # metrics_token: ""         # if set, /metrics needs "Authorization: Bearer <token>"
+  # metrics_token: ""         # /metrics needs "Authorization: Bearer <token>" ...
+  # metrics_allow: ""         # ... or a request from these addresses/networks, or an admin login
 
 server:
   # public_url: https://cameras.example.com
@@ -44,4 +45,4 @@ auth:
   # header_groups: Remote-Groups
   # header_admin_group: cctv-admins
   # header_secret: a-long-random-string-your-proxy-also-sends
-  # trusted_proxies: 172.18.0.0/16
+  # trusted_proxies: 172.18.0.5   # the proxy itself; set this behind any reverse proxy, in every mode

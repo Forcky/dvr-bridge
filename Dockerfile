@@ -23,13 +23,14 @@ RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin dvrbridge \
  && install -d -o 10001 -g 10001 -m 0700 /data
 WORKDIR /srv
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
+# Hash-checked: a wheel that differs from the one these pins were made with is refused.
+RUN pip install --require-hashes -r requirements.txt
 COPY dvrbridge/ ./dvrbridge/
 
 # `docker build --target test .` runs the test suite; the runtime image has no tests or pytest.
 FROM base AS test
 COPY requirements-dev.txt pytest.ini config.example.yaml ./
-RUN pip install -r requirements-dev.txt
+RUN pip install --require-hashes -r requirements-dev.txt
 COPY tests/ ./tests/
 RUN pytest -q
 

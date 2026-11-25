@@ -17,6 +17,7 @@ settings page can show which ones are fixed by the environment.
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import secrets as _secrets
@@ -67,6 +68,8 @@ OPTIONS: tuple[Option, ...] = (
     Option("monitoring", "metrics_enabled", "metrics_enabled", bool, help="Serve Prometheus metrics at /metrics"),
     Option("monitoring", "metrics_token", "metrics_token", str, secret=True,
            help="If set, /metrics requires 'Authorization: Bearer <token>'"),
+    Option("monitoring", "metrics_allow", "metrics_allow", str,
+           help="Addresses/networks that may read /metrics without the token (e.g. your Prometheus), comma-separated"),
     Option("server", "public_url", "public_url", str, help="External URL, e.g. https://cameras.example.com"),
     Option("server", "secret_key", "secret_key", str, secret=True, editable=False,
            help="Signs sessions; generated and stored in the data directory if not set"),
@@ -120,6 +123,7 @@ class Settings:
     poll_interval: float = 60.0
     metrics_enabled: bool = True
     metrics_token: str = field(default="", repr=False)
+    metrics_allow: str = ""
     public_url: str = ""
     auth_mode: str = "local"
     session_hours: int = 12
@@ -249,8 +253,6 @@ _HOST_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])
 
 
 def valid_host(host: str) -> bool:
-    import ipaddress
-
     try:
         ipaddress.ip_address(host)
         return True
@@ -283,17 +285,30 @@ def _validate_auth(s: Settings) -> list[str]:
         if not s.header_secret and not s.trusted_proxies:
             p.append("header mode needs auth.header_secret or auth.trusted_proxies (or both): "
                      "otherwise anyone who can reach the app could claim any user")
+        elif not s.header_secret and not _single_addresses(s.trusted_proxies):
+            # A whole network (e.g. a Docker network) means every machine on it could claim any user.
+            p.append("header mode without auth.header_secret needs auth.trusted_proxies to list single addresses "
+                     "(the proxy itself), not networks: set auth.header_secret, or narrow auth.trusted_proxies")
         if s.header_secret and len(s.header_secret) < 32:
             p.append("auth.header_secret must be at least 32 characters")
-    if s.trusted_proxies:
-        import ipaddress
-
-        for part in s.trusted_proxies.split(","):
+    for key, text in (("auth.trusted_proxies", s.trusted_proxies), ("monitoring.metrics_allow", s.metrics_allow)):
+        for part in (text or "").split(","):
+            if not part.strip():
+                continue
             try:
                 ipaddress.ip_network(part.strip(), strict=False)
             except ValueError:
-                p.append(f"auth.trusted_proxies: {part.strip()!r} is not an address or network")
+                p.append(f"{key}: {part.strip()!r} is not an address or network")
     return p
+
+
+def _single_addresses(text: str) -> bool:
+    """True if every entry is one address (not a wider network)."""
+    try:
+        nets = [ipaddress.ip_network(p.strip(), strict=False) for p in (text or "").split(",") if p.strip()]
+    except ValueError:
+        return True     # reported separately as not an address
+    return all(n.num_addresses == 1 for n in nets)
 
 
 def _read_file(path: Path) -> dict[str, Any]:

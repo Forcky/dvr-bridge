@@ -18,9 +18,15 @@ def new_secret() -> str:
     return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
 
 
+MIN_KEY_BYTES = 16  # RFC 4226 asks for at least 128 bits
+
+
 def _key(secret: str) -> bytes:
     s = secret.strip().replace(" ", "").upper()
-    return base64.b32decode(s + "=" * (-len(s) % 8))
+    key = base64.b32decode(s + "=" * (-len(s) % 8))
+    if len(key) < MIN_KEY_BYTES:
+        raise ValueError("TOTP secret is too short")
+    return key
 
 
 def code_at(secret: str, step: int) -> str:
