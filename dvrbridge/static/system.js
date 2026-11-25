@@ -6,7 +6,8 @@
     if (text) e.textContent = text;
     return e;
   };
-  const SECTIONS = { dvr: 'DVR connection', playback: 'Playback', monitoring: 'Monitoring', server: 'Server', auth: 'Logins' };
+  const SECTIONS = { dvr: 'DVR connection', playback: 'Playback', detection: 'Detections (Frigate)', monitoring: 'Monitoring',
+    server: 'Server', auth: 'Logins' };
   const LABELS = {
     'dvr.host': 'DVR address', 'dvr.username': 'DVR username', 'dvr.password': 'DVR password',
     'dvr.http_port': 'Web API port', 'dvr.media_port': 'Client port (recordings)', 'dvr.rtsp_port': 'RTSP port (live)',
@@ -21,6 +22,7 @@
     'auth.oidc_button_label': 'Button text', 'auth.header_user': 'Username header', 'auth.header_groups': 'Groups header',
     'auth.header_admin_group': 'Admin group', 'auth.header_secret': 'Shared secret', 'auth.header_secret_name': 'Secret header',
     'auth.trusted_proxies': 'Trusted proxies',
+    'detection.frigate_url': 'Frigate URL', 'detection.cameras': 'Camera mapping',
   };
   const me = await loadNav('settings');
   if (me.role !== 'admin') return;

@@ -54,6 +54,12 @@ to describe compatibility.
 - Two roles: **admins** manage users and camera names; **viewers** watch, play and download.
 - An activity log of logins, failed logins, playback, downloads and changes.
 
+**Detections (optional, with Frigate)**
+- If you run [Frigate](https://frigate.video) on the cameras, its person / car / dog / cat detections
+  appear as markers on the recordings timeline, with filters per label.
+- Click a marker to play the DVR's recording of that moment. When the DVR recorded nothing (its own
+  motion detection did not trigger), the marker is hollow and shows Frigate's snapshot instead.
+
 **Monitoring**
 - `/healthz` for container health checks.
 - Prometheus metrics: DVR reachable, disk status, which cameras are recording or have lost video,
@@ -288,6 +294,17 @@ the container at start-up with a message naming it.
 | `server.public_url` | empty | external URL, e.g. `https://cameras.example.com` |
 | `server.secret_key` | generated | signs login state; generated into `/data/secret.key` if not set |
 
+**Detections**
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `detection.frigate_url` | empty (off) | Frigate's internal API, e.g. `http://frigate:5000` |
+| `detection.cameras` | empty | channel to Frigate camera, e.g. `1=driveway,2=front_door`; empty matches by name ("Front door" = `front_door`) |
+
+Use Frigate's internal port 5000 from a Docker network that only DVR Bridge and Frigate share: it has no
+login of its own. DVR Bridge only reads events and snapshots from it, and the browser never talks to
+Frigate - snapshots are served through DVR Bridge's own login.
+
 **Logins**
 
 | Setting | Default | Meaning |
@@ -447,7 +464,9 @@ docker build -t dvr-bridge:dev .      # build the image
 ```
 
 The tests run against fake DVRs - an HTTP API and a port-9000 media server built from scrubbed real
-responses - so no hardware is needed. Pull requests are welcome; please include tests, and keep
+responses - so no hardware is needed. To click around the UI without a DVR, `tests/sim.py` runs a
+simulated DVR (recordings search, camera names, status) and a simulated Frigate; its docstring has the
+two `docker run` commands. Pull requests are welcome; please include tests, and keep
 dependencies to a minimum.
 
 Contributions must be your own work. Do not submit code copied, decompiled or translated from vendor

@@ -19,8 +19,9 @@
     dvr_unavailable: 'The DVR media port did not answer.', dvr_login_refused: 'The DVR refused DVR Bridge’s media login.',
     dvr_stalled: 'The DVR stopped sending video part-way through.' };
   let current = null;
+  const psnap = $('psnap'), psnapImg = $('psnapImg');
   const clearOn = () => document.querySelectorAll('.on:not(.zb)').forEach(e => e.classList.remove('on'));
-  function stopPlayer() { pv.pause(); pv.removeAttribute('src'); pv.load(); }
+  function stopPlayer() { pv.pause(); pv.removeAttribute('src'); pv.load(); psnap.hidden = true; psnapImg.removeAttribute('src'); pv.hidden = false; dl.hidden = false; }
   $('pclose').onclick = () => { stopPlayer(); player.hidden = true; current = null; clearOn(); };
   pv.addEventListener('error', async () => {
     if (!current || !pv.getAttribute('src')) return;
@@ -46,12 +47,35 @@
     player.scrollIntoView({ block: 'nearest' });
   }
 
+  // A detection: play the DVR recording that covers it, or - when the DVR recorded nothing then -
+  // show Frigate's snapshot, the only picture of that moment.
+  const LABEL = { person: 'Person', car: 'Car', dog: 'Dog', cat: 'Cat' };
+  const labelText = (l) => LABEL[l] || (l ? l[0].toUpperCase() + l.slice(1) : 'Object');
+  function openDetection(d) {
+    if (d.cover) { playClip(d.cover); d.el.classList.add('on'); return; }
+    note('');
+    stopPlayer();
+    current = null;
+    clearOn();
+    d.el.classList.add('on');
+    pv.hidden = true; dl.hidden = true;
+    $('ptitle').textContent = d.ch + ' · ' + d.name + ' · ' + labelText(d.det.label) + ' at ' + hms(d.det.start);
+    psnap.hidden = false;
+    $('psnapCap').textContent = 'The DVR did not record at this moment, so there is no video. ' +
+      (d.det.has_snapshot ? 'This is Frigate’s snapshot (kept for about a day).' : 'Frigate kept no snapshot either.');
+    if (d.det.has_snapshot) psnapImg.src = '/api/detections/' + encodeURIComponent(d.det.id) + '/snapshot.jpg';
+    psnapImg.onerror = () => { psnapImg.removeAttribute('src'); $('psnapCap').textContent = 'The DVR did not record at this moment, and Frigate’s snapshot is no longer kept.'; };
+    player.hidden = false;
+    player.scrollIntoView({ block: 'nearest' });
+  }
+
   // ---- shared time axis: view = [a, b] seconds into the day ------------------------
   const DAY = 86400, MIN_SPAN = 20;
   const PRESETS = [['24 h', DAY], ['6 h', 21600], ['1 h', 3600], ['15 min', 900]];
   const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600];
   let view = { a: 0, b: DAY };
   let recs = [];      // every clip element's record, for relayout
+  let dets = [];      // every detection marker's record: { ch, name, det, s, e, el, cover }
   let tls = [];       // the per-channel timeline elements
   let sels = [];      // their selection overlays
   let raf = 0;
@@ -103,7 +127,7 @@
       tl.style.backgroundSize = stepPx + 'px 100%';
       tl.style.backgroundPosition = off + 'px 0';
     }
-    for (const r of recs) {
+    for (const r of recs.concat(dets)) {
       const el = r.el;
       if (r.e < view.a || r.s > view.b) { el.style.display = 'none'; continue; }
       el.style.display = '';
@@ -198,7 +222,7 @@
     try { tlwrap.releasePointerCapture(e.pointerId); } catch (_) {}
     if (pts.size === 0) {
       // a plain tap on a touch screen: show the clip tooltip (the click that follows still plays it)
-      if (g && g.kind === 'pending' && wasTouch && !cancelled) { const c = e.target instanceof Element && e.target.closest('.clip'); if (c) showTip(c, e.clientX, e.clientY, true); }
+      if (g && g.kind === 'pending' && wasTouch && !cancelled) { const c = e.target instanceof Element && e.target.closest('.clip, .det'); if (c) showTip(c, e.clientX, e.clientY, true); }
       g = null;
     } else {
       g = { kind: 'none' };  // a finger is still down after a pinch: ignore it until it lifts
@@ -222,6 +246,11 @@
 
   // ---- tooltip (textContent only: clip data comes from the DVR) ----------------------
   function tipText(c) {
+    if (c._det) {
+      const d = c._det, x = d.det;
+      return d.ch + ' · ' + d.name + '\n' + labelText(x.label) + ' (' + Math.round(x.score * 100) + '%) · ' + hms(x.start) +
+        (x.end ? ' – ' + hms(x.end) : ' – still in view') + '\n' + (d.cover ? 'Click to play the recording' : 'No DVR recording - click for the snapshot');
+    }
     const r = c._rec, clip = r.clip;
     return r.ch + ' · ' + r.name + '\n' + hms(clip.start) + ' – ' + hms(clip.end) + ' · ' + clip.duration_s + ' s · ' + fmtSize(clip.size);
   }
@@ -234,17 +263,18 @@
     if (autoHide) tipTimer = setTimeout(hideTip, 2500);
   }
   function hideTip() { clearTimeout(tipTimer); tip.hidden = true; }
-  tlwrap.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse' && !g) { const c = e.target instanceof Element && e.target.closest('.clip'); if (c) showTip(c, e.clientX, e.clientY); } });
-  tlwrap.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && !tip.hidden && !g) { const c = e.target instanceof Element && e.target.closest('.clip'); if (c) showTip(c, e.clientX, e.clientY); else hideTip(); } });
+  tlwrap.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse' && !g) { const c = e.target instanceof Element && e.target.closest('.clip, .det'); if (c) showTip(c, e.clientX, e.clientY); } });
+  tlwrap.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && !tip.hidden && !g) { const c = e.target instanceof Element && e.target.closest('.clip, .det'); if (c) showTip(c, e.clientX, e.clientY); else hideTip(); } });
   tlwrap.addEventListener('pointerout', (e) => { if (e.pointerType === 'mouse') hideTip(); });
-  tlwrap.addEventListener('focusin', (e) => { const c = e.target instanceof Element && e.target.closest('.clip'); if (c) { const r = c.getBoundingClientRect(); showTip(c, r.left, r.bottom - 12); } });
+  tlwrap.addEventListener('focusin', (e) => { const c = e.target instanceof Element && e.target.closest('.clip, .det'); if (c) { const r = c.getBoundingClientRect(); showTip(c, r.left, r.bottom - 12); } });
   tlwrap.addEventListener('focusout', hideTip);
   new ResizeObserver(() => schedule()).observe(tlwrap);
 
   // ---- load a day -----------------------------------------------------------------------
   async function load() {
     note(''); rows.textContent = 'Loading…'; summary.textContent = ''; clipsBox.textContent = '';
-    recs = []; tls = []; sels = []; hideTip();
+    recs = []; dets = []; tls = []; sels = []; hideTip();
+    const chanTl = new Map();   // channel -> { tl, name, recs } for placing detections
     let doc;
     try {
       const r = await fetch('/api/recordings?date=' + dayEl.value);
@@ -262,6 +292,8 @@
       const cnt = document.createElement('span'); cnt.textContent = c.clips.length + ' clip' + (c.clips.length === 1 ? '' : 's');
       h.append(a, cnt); row.append(h);
       const tl = document.createElement('div'); tl.className = 'tl';
+      const chan = { tl, name: c.name, recs: [] };
+      chanTl.set(String(c.channel), chan);
       for (const clip of c.clips) {
         const s = secs(clip.start);
         const e = clip.end.slice(0, 10) > clip.start.slice(0, 10) ? DAY : Math.max(secs(clip.end), s + 1);
@@ -272,7 +304,7 @@
         el._rec = rec;
         el.onclick = () => playClip(rec);
         el.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); playClip(rec); } };
-        recs.push(rec); all.push(rec);
+        recs.push(rec); all.push(rec); chan.recs.push(rec);
         tl.append(el);
       }
       const sel = document.createElement('div'); sel.className = 'sel'; sel.hidden = true; tl.append(sel);
@@ -282,6 +314,7 @@
     }
     summary.textContent = total + ' clips';
     layout();
+    addDetections(dayEl.value, chanTl, total);
     if (total) {
       const det = document.createElement('details'); det.open = true;
       const sm = document.createElement('summary'); sm.textContent = 'All clips'; det.append(sm);
@@ -303,6 +336,62 @@
       }
       tb.append(body); det.append(tb); clipsBox.append(det);
     }
+  }
+
+  // ---- detections from Frigate (optional; the server says whether it is set up) ----------------
+  const DET_LABELS = ['person', 'car', 'dog', 'cat'];
+  let hidden = new Set();
+  try { hidden = new Set(JSON.parse(localStorage.getItem('dvrb.detHidden') || '[]')); } catch (e) { /* no storage */ }
+  const applyHidden = () => DET_LABELS.forEach(l => tlwrap.classList.toggle('hide-' + l, hidden.has(l)));
+  let filtersBuilt = false;
+  function buildFilters() {
+    if (filtersBuilt) return;
+    filtersBuilt = true;
+    const btns = DET_LABELS.map(l => {
+      const b = mk('', labelText(l), 'Show or hide ' + l + ' detections', () => {
+        if (hidden.has(l)) hidden.delete(l); else hidden.add(l);
+        b.classList.toggle('off', hidden.has(l)); b.setAttribute('aria-pressed', String(!hidden.has(l)));
+        try { localStorage.setItem('dvrb.detHidden', JSON.stringify([...hidden])); } catch (e) { /* no storage */ }
+        applyHidden();
+      });
+      b.classList.add('detf'); b.style.setProperty('--c', 'var(--det-' + l + ')');
+      b.classList.toggle('off', hidden.has(l)); b.setAttribute('aria-pressed', String(!hidden.has(l)));
+      return b;
+    });
+    zbar.insertBefore(grp(...btns), $('view'));
+    applyHidden();
+  }
+
+  async function addDetections(day, chanTl, clipTotal) {
+    let r, doc;
+    try { r = await fetch('/api/detections?date=' + day); doc = await r.json(); } catch (e) { return; }
+    if (day !== dayEl.value || !doc || !doc.enabled) return;     // another day was picked meanwhile, or off
+    if (doc.error) { note('Frigate did not answer, so detections are not shown (' + (doc.detail || doc.error) + ').'); return; }
+    let n = 0, missed = 0;
+    for (const [ch, items] of Object.entries(doc.channels || {})) {
+      const c = chanTl.get(String(ch));
+      if (!c) continue;
+      for (const x of items) {
+        const s = x.start.slice(0, 10) < day ? 0 : secs(x.start);
+        const e = !x.end ? Math.min(DAY, s + 30) : x.end.slice(0, 10) > day ? DAY : Math.max(secs(x.end), s + 1);
+        const cover = c.recs.find(rr => rr.s <= e && rr.e >= s) || null;
+        const el = document.createElement('div');
+        el.className = 'det det-' + (DET_LABELS.includes(x.label) ? x.label : 'other') + (cover ? '' : ' nofoot');
+        el.tabIndex = 0; el.setAttribute('role', 'button');
+        el.setAttribute('aria-label', labelText(x.label) + ' on channel ' + ch + ' at ' + hms(x.start) + (cover ? '' : ', not recorded'));
+        const d = { ch, name: c.name, det: x, s, e, el, cover };
+        el._det = d;
+        el.onclick = (ev) => { ev.stopPropagation(); openDetection(d); };
+        el.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDetection(d); } };
+        dets.push(d); c.tl.append(el);
+        n++; if (!cover) missed++;
+      }
+    }
+    buildFilters();
+    $('detHint').hidden = false;
+    summary.textContent = clipTotal + ' clips · ' + n + ' detection' + (n === 1 ? '' : 's') +
+      (missed ? ' (' + missed + ' without a recording)' : '') + (doc.truncated ? ' - showing the first ' + n : '');
+    schedule();
   }
 
   const today = info.today || iso(new Date());

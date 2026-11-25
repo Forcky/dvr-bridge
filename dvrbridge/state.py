@@ -26,6 +26,7 @@ class Snapshot:
     go2rtc_up: bool = False
     playback: PlaybackStats | None = None
     media_session_up: bool | None = None
+    frigate_up: bool | None = None
 
 
 class Monitor:
@@ -84,7 +85,7 @@ class Monitor:
             await asyncio.sleep(self.interval if self.up else min(self.interval, 30.0))
 
     def snapshot(self, go2rtc_up: bool = False, playback: PlaybackStats | None = None,
-                 media_session_up: bool | None = None) -> Snapshot:
+                 media_session_up: bool | None = None, frigate_up: bool | None = None) -> Snapshot:
         return Snapshot(
             up=self.up,
             last_success_age=self.dvr.last_success_age,
@@ -95,6 +96,7 @@ class Monitor:
             go2rtc_up=go2rtc_up,
             playback=playback,
             media_session_up=media_session_up,
+            frigate_up=frigate_up,
         )
 
     def channel_names(self, count: int) -> dict[int, str]:
@@ -171,4 +173,7 @@ def render_metrics(s: Snapshot) -> str:
     if s.media_session_up is not None:
         metric("dvrbridge_dvr_media_session_up", "1 if the shared port-9000 media session is logged in.")
         sample("dvrbridge_dvr_media_session_up", int(s.media_session_up))
+    if s.frigate_up is not None:
+        metric("dvrbridge_frigate_up", "1 if the last request to Frigate (detections) succeeded.")
+        sample("dvrbridge_frigate_up", int(s.frigate_up))
     return "\n".join(out) + "\n"

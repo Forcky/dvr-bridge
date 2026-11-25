@@ -95,6 +95,10 @@ OPTIONS: tuple[Option, ...] = (
     Option("auth", "header_secret_name", "header_secret_name", str, help="Header carrying the shared secret"),
     Option("auth", "trusted_proxies", "trusted_proxies", str,
            help="Comma-separated addresses/networks allowed to send identity headers"),
+    Option("detection", "frigate_url", "frigate_url", str,
+           help="Frigate's internal API (e.g. http://frigate:5000) to show its detections on the timeline; empty = off"),
+    Option("detection", "cameras", "frigate_cameras", str,
+           help="Channel to Frigate camera, e.g. 1=driveway,2=front_door; empty = match by camera name"),
 )
 AUTH_MODES = ("local", "oidc", "header", "none")
 BY_ATTR = {o.attr: o for o in OPTIONS}
@@ -136,6 +140,8 @@ class Settings:
     header_secret: str = field(default="", repr=False)
     header_secret_name: str = "X-DVR-Bridge-Proxy-Secret"
     trusted_proxies: str = ""
+    frigate_url: str = ""
+    frigate_cameras: str = ""
     data_dir: str = "/data"
     go2rtc_port: int = 1984
     go2rtc_bin: str = "/usr/local/bin/go2rtc"
@@ -211,7 +217,32 @@ def validate(s: Settings) -> list[str]:
         if u.scheme not in ("http", "https") or not u.netloc:
             p.append("server.public_url must look like https://cameras.example.com")
     p += _validate_auth(s)
+    if s.frigate_url:
+        u = urlparse(s.frigate_url)
+        if u.scheme not in ("http", "https") or not u.netloc or u.query or u.fragment:
+            p.append("detection.frigate_url must look like http://frigate:5000")
+    try:
+        parse_camera_map(s.frigate_cameras)
+    except ValueError as e:
+        p.append(f"detection.cameras: {e}")
     return p
+
+
+_CAMERA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def parse_camera_map(text: str) -> dict[int, str]:
+    """'1=driveway,2=front_door' -> {1: 'driveway', 2: 'front_door'}."""
+    out: dict[int, str] = {}
+    for part in (text or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        ch, sep, cam = part.partition("=")
+        if not sep or not ch.strip().isdigit() or not 1 <= int(ch) <= 64 or not _CAMERA_ID.match(cam.strip()):
+            raise ValueError(f"{part!r} should look like 3=front_door (channel=Frigate camera name)")
+        out[int(ch)] = cam.strip()
+    return out
 
 
 _HOST_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import websockets
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
@@ -38,6 +38,7 @@ from .dvr9000 import (
 )
 from .playback import NoFootage, PlaybackNotImplemented, PlaybackProvider, PlaybackStats, prime, remux_to_fmp4
 from .state import Monitor, render_metrics
+from .frigate import FrigateClient, FrigateError, camera_map
 from .auth.gate import AuthGate
 from .auth.routes import build_router
 from .auth.service import AuthService
@@ -57,6 +58,7 @@ def create_app(
     auth: AuthService | None = None,
     env: Mapping[str, str] | None = None,
     request_reload: Callable[[], None] | None = None,
+    frigate: FrigateClient | None = None,
 ) -> FastAPI:
     """The app for one configuration. ``request_reload`` (from dvrbridge.server) rebuilds it after the
     settings page saves a change; ``env`` is where settings are read from and saved to."""
@@ -82,6 +84,9 @@ def create_app(
     provider = playback
     tz = ZoneInfo(s.tz)
     search_cache: dict[date, tuple[float, dict]] = {}
+    if frigate is None and s.frigate_url:
+        frigate = FrigateClient(s.frigate_url, s.tz)
+    detection_cache: dict[date, tuple[float, dict]] = {}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -104,6 +109,8 @@ def create_app(
             await dvr.close()
             if media is not None:
                 await media.close()
+            if frigate is not None:
+                await frigate.close()
             await auth.close()
 
     app = FastAPI(title="dvr-bridge", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -149,6 +156,7 @@ def create_app(
                     go2rtc_up=g2r.running,
                     playback=provider.stats,
                     media_session_up=media.up if media is not None else None,
+                    frigate_up=frigate.up if frigate is not None else None,   # absent until Frigate was asked
                 )
             ),
             media_type="text/plain; version=0.0.4; charset=utf-8",
@@ -203,6 +211,53 @@ def create_app(
             search_cache.clear()
         search_cache[d] = (time.monotonic(), doc)
         return doc
+
+    # ---- detections from Frigate (optional) --------------------------------
+    async def frigate_mapping() -> dict[int, str]:
+        return camera_map(s.frigate_cameras, monitor.channel_names(channel_count()), await frigate.cameras())
+
+    @app.get("/api/detections")
+    async def detections(day: str = Query(..., alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")):
+        if frigate is None:
+            return {"enabled": False}
+        if not configured:
+            return not_configured()
+        try:
+            d = date.fromisoformat(day)
+        except ValueError:
+            return JSONResponse({"error": "bad_date"}, status_code=400)
+        ttl = 20 if d >= datetime.now(tz).date() else 300
+        hit = detection_cache.get(d)
+        if hit and time.monotonic() - hit[0] < ttl:
+            return hit[1]
+        try:
+            mapping = await frigate_mapping()
+            found, truncated = await frigate.detections(d, mapping)
+        except FrigateError as e:
+            log.warning("detections from Frigate failed: %s", e)
+            return JSONResponse({"enabled": True, "error": "frigate_unavailable", "detail": str(e)}, status_code=502)
+        per: dict[int, list[dict]] = {}
+        for det in found:
+            per.setdefault(det.channel, []).append(det.public())
+        doc = {"enabled": True, "date": d.isoformat(), "truncated": truncated,
+               "cameras": {str(ch): cam for ch, cam in sorted(mapping.items())},
+               "channels": {str(ch): items for ch, items in sorted(per.items())}}
+        if len(detection_cache) > 32:
+            detection_cache.clear()
+        detection_cache[d] = (time.monotonic(), doc)
+        return doc
+
+    @app.get("/api/detections/{event_id}/snapshot.jpg")
+    async def detection_snapshot(event_id: str):
+        if frigate is None:
+            return JSONResponse({"error": "not_enabled"}, status_code=404)
+        try:
+            image = await frigate.snapshot(event_id, set((await frigate_mapping()).values()))
+        except FrigateError as e:
+            status = 400 if "bad event id" in str(e) else 502 if "did not answer" in str(e) else 404
+            return JSONResponse({"error": "no_snapshot", "detail": str(e)}, status_code=status)
+        return Response(image, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
     # ---- settings: rename cameras (stored on the DVR) ----------------------
     def dvr_failure(e: DvrError, what: str) -> JSONResponse:

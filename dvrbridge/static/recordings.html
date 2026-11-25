@@ -16,6 +16,7 @@
     <div class="bar"><strong id="ptitle"></strong><span class="spacer"></span>
       <a id="dl" class="btn" download>Download</a><button id="pclose" aria-label="Close player">Close</button></div>
     <video id="pv" controls autoplay muted playsinline></video>
+    <figure id="psnap" hidden><img id="psnapImg" alt="Detection snapshot"><figcaption id="psnapCap"></figcaption></figure>
   </section>
   <div class="zbar" id="zbar"><span id="view" class="zview" aria-live="polite"></span></div>
   <div id="tlwrap">
@@ -23,6 +24,8 @@
     <div id="rows"></div>
     <div class="axis" id="axisBot"></div>
   </div>
+  <p class="hint" id="detHint" hidden>Coloured marks above the recordings are detections from Frigate (person, car, dog, cat).
+    A hollow mark means the DVR did not record at that moment: click it to see Frigate's snapshot instead.</p>
   <p class="hint">Mouse wheel zooms at the pointer (Shift+wheel pans). Drag to pan when zoomed, or drag across the day (Shift+drag when zoomed) to zoom into a range. On a touch screen, pinch to zoom and drag to pan; tap a clip to see its times and play it.</p>
   <div id="clips"></div>
   <div id="tip" role="tooltip" hidden></div>

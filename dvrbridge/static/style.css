@@ -109,3 +109,19 @@ td .tag { font-size:12px; color:var(--dim); border:1px solid var(--line); border
 @media (max-width:600px) { .opt { grid-template-columns:1fr; } .opt .help, .opt .lock { grid-column:1; } }
 .card > h3:first-child { margin-top:0; }
 input:disabled, select:disabled { opacity:.55; cursor:not-allowed; }
+
+/* ---- recordings: Frigate detection markers ---- */
+:root { --det-person:#ff7a59; --det-car:#b48cff; --det-dog:#3ccf91; --det-cat:#ffd23f; --det-other:#9aa4b2; }
+.tl .det { position:absolute; top:1px; height:9px; min-width:6px; border-radius:2px; cursor:pointer; z-index:3; background:var(--det-other); outline-offset:1px; }
+.tl .det-person { background:var(--det-person); } .tl .det-car { background:var(--det-car); }
+.tl .det-dog { background:var(--det-dog); } .tl .det-cat { background:var(--det-cat); }
+.tl .det.nofoot { background:transparent !important; border:2px solid var(--det-other); top:0; height:11px; }
+.tl .det-person.nofoot { border-color:var(--det-person); } .tl .det-car.nofoot { border-color:var(--det-car); }
+.tl .det-dog.nofoot { border-color:var(--det-dog); } .tl .det-cat.nofoot { border-color:var(--det-cat); }
+.tl .det:hover, .tl .det:focus-visible { outline:2px solid #fff; z-index:4; }
+.tl .det.on { box-shadow:0 0 0 2px #fff; }
+#tlwrap.hide-person .det-person, #tlwrap.hide-car .det-car, #tlwrap.hide-dog .det-dog, #tlwrap.hide-cat .det-cat { display:none !important; }
+.zgrp button.detf { min-width:auto; } .zgrp button.detf::before { content:""; display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; background:var(--c); }
+.zgrp button.detf.off { opacity:.45; text-decoration:line-through; }
+#psnap { margin:0; } #psnap img { width:100%; max-height:70vh; object-fit:contain; background:#000; border:1px solid var(--line); border-radius:6px; display:block; }
+#psnap figcaption { color:var(--dim); font-size:13px; margin-top:6px; }
