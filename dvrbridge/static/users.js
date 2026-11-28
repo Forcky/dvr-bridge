@@ -12,7 +12,19 @@
     await load();
   }
 
-  function row(u, localLogin) {
+  // Where people are added when logins come from a proxy or an identity provider.
+  function externalHint(d) {
+    const where = d.auth_mode === 'header' ? 'your reverse proxy' : 'your identity provider';
+    const group = d.role_groups[d.auth_mode];
+    let text = '';
+    if (!d.local_login) text += 'Local accounts are off, so people are added in ' + where + ', not here: give them access to this app there, and they appear in this list after their first visit. ';
+    else text += 'People who sign in through ' + where + ' appear in this list after their first visit. ';
+    text += group ? 'Members of the group "' + group + '" are admins and everyone else is a viewer; change roles by changing their groups there.'
+                  : 'Set their role here once they have signed in.';
+    return text;
+  }
+
+  function row(u, localLogin, roleGroups) {
     const tr = document.createElement('tr');
     const name = el('td', u.username);
     if (u.source !== 'local') name.appendChild(el('span', u.source === 'oidc' ? 'SSO' : 'proxy', 'tag'));
@@ -24,6 +36,8 @@
     const sel = document.createElement('select');
     for (const r of ['viewer', 'admin']) { const o = el('option', r[0].toUpperCase() + r.slice(1)); o.value = r; sel.appendChild(o); }
     sel.value = u.role;
+    const group = roleGroups[u.source];
+    if (group) { sel.disabled = true; sel.title = 'Set by membership of "' + group + '" at the identity provider'; }
     sel.addEventListener('change', () => patch(u, { role: sel.value }, u.username + ' is now ' + sel.value + '.'));
     roleTd.appendChild(sel); tr.appendChild(roleTd);
 
@@ -58,8 +72,11 @@
     const r = await api('GET', '/api/users');
     if (!r.ok) { say(r.data.detail || 'Could not load users.'); return; }
     $('addSection').hidden = !r.data.local_login;
+    const external = r.data.auth_mode === 'header' || r.data.auth_mode === 'oidc';
+    $('extHint').hidden = !external;
+    if (external) $('extHint').textContent = externalHint(r.data);
     const body = $('users'); body.textContent = '';
-    for (const u of r.data.users) body.appendChild(row(u, r.data.local_login));
+    for (const u of r.data.users) body.appendChild(row(u, r.data.local_login, r.data.role_groups || {}));
     const a = await api('GET', '/api/audit?limit=100');
     const ab = $('audit'); ab.textContent = '';
     for (const e of (a.data.events || [])) {

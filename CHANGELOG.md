@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Users page with proxy or single sign-on logins: it now says where people are added (and which group
+  makes someone an admin) instead of silently hiding the add form; the role of an account whose role comes
+  from an admin group can no longer be changed here, because the next login put it back; proxy users show
+  a last-login time (their last visit, updated at most every 10 minutes).
+
 ## [0.1.0] - 2026-11-25
 
 First public release.

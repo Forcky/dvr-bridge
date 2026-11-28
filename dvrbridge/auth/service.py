@@ -4,6 +4,7 @@ from __future__ import annotations
 import hmac
 import logging
 import secrets
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,9 @@ SESSION_COOKIE = "dvrbridge_session"
 SECURE_SESSION_COOKIE = "__Host-" + SESSION_COOKIE
 USERNAME_MAX = 64
 TOTP_PENDING_TTL = 600
+# A proxy user has no login event (every request carries the headers), so "last login" is their
+# last visit, written at most this often to keep the database out of the request path.
+HEADER_SEEN_INTERVAL = 600
 
 
 def session_cookie(cookies) -> str | None:
@@ -153,11 +157,18 @@ class AuthService:
         groups = tuple(g.strip() for g in (header(scope, self.s.header_groups) or "").replace("|", ",").split(",")
                        if g.strip())
         try:
-            return self.provision(Identity(username, groups, username), source="header",
+            user = self.provision(Identity(username, groups, username), source="header",
                                   admin_group=self.s.header_admin_group, allowed_group="")
         except AccessDenied as e:
             log.warning("header login refused for %r: %s", username, e)
             return None
+        if user.last_login_at is None or time.time() - user.last_login_at > HEADER_SEEN_INTERVAL:
+            self.store.touch_login(user.id)
+        return user
+
+    def role_group(self, source: str) -> str:
+        """The identity-provider group that decides this kind of account's role ('' = set by an admin here)."""
+        return {"header": self.s.header_admin_group, "oidc": self.s.oidc_admin_group}.get(source, "")
 
     # ---- external users ----------------------------------------------------------------------
     def provision(self, ident: Identity, *, source: str, admin_group: str, allowed_group: str) -> User:
