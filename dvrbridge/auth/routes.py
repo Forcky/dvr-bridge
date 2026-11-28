@@ -367,7 +367,9 @@ def build_router(svc: AuthService) -> APIRouter:
     # ---- administration ----------------------------------------------------------------------
     @r.get("/api/users")
     async def list_users():
-        return {"users": [u.public() for u in svc.store.users()], "local_login": svc.local_login}
+        return {"users": [u.public() for u in svc.store.users()], "local_login": svc.local_login,
+                "auth_mode": s.auth_mode,
+                "role_groups": {"header": svc.role_group("header"), "oidc": svc.role_group("oidc")}}
 
     @r.post("/api/users")
     async def create_user(request: Request):
@@ -404,6 +406,11 @@ def build_router(svc: AuthService) -> APIRouter:
         if "role" in doc:
             if doc["role"] not in ROLES:
                 return _err(400, "bad_role", "Role must be admin or viewer.")
+            group = svc.role_group(target.source)
+            if group and doc["role"] != target.role:
+                # provision() would put it back at their next request.
+                return _err(409, "role_from_group", f"{target.username}'s role comes from the group {group!r} "
+                                                    f"at the identity provider; change their groups there.")
             changes["role"] = doc["role"]
         if "disabled" in doc:
             changes["disabled"] = bool(doc["disabled"])

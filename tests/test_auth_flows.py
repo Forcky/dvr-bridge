@@ -225,6 +225,41 @@ async def test_header_mode_needs_the_secret_and_a_trusted_peer(fake_dvr, tmp_pat
         assert (await c.get("/api/channels", headers=good)).status_code == 401   # peer is not a trusted proxy
 
 
+async def test_header_users_page_roles_come_from_the_group_and_visits_count_as_logins(fake_dvr, tmp_path):
+    kw = dict(auth_mode="header", header_secret=SECRET, trusted_proxies="127.0.0.1/32",
+              header_user="X-User", header_groups="X-Groups", header_admin_group="cctv-admins", local_login=False)
+    admin = {"X-User": "carol", "X-Groups": "cctv-admins", "X-DVR-Bridge-Proxy-Secret": SECRET}
+    viewer = {"X-User": "dave", "X-DVR-Bridge-Proxy-Secret": SECRET}
+    async with app_client(fake_dvr, tmp_path, **kw) as c:
+        assert (await c.get("/api/me", headers=viewer)).status_code == 200
+        doc = (await c.get("/api/users", headers=admin)).json()
+        assert doc["auth_mode"] == "header" and doc["local_login"] is False
+        assert doc["role_groups"] == {"header": "cctv-admins", "oidc": ""}
+        users = {u["username"]: u for u in doc["users"]}
+        assert users["dave"]["last_login_at"] and users["carol"]["last_login_at"]   # a visit is a login
+        # The group decides the role, so the page cannot change it (it would be undone at the next visit).
+        r = await c.request("PATCH", f"/api/users/{users['dave']['id']}", content=json.dumps({"role": "admin"}),
+                            headers={**JSON, **admin})
+        assert r.status_code == 409 and r.json()["error"] == "role_from_group"
+        assert (await c.get("/api/me", headers=viewer)).json()["role"] == "viewer"
+        # Disabling still works.
+        r = await c.request("PATCH", f"/api/users/{users['dave']['id']}", content=json.dumps({"disabled": True}),
+                            headers={**JSON, **admin})
+        assert r.status_code == 200
+        assert (await c.get("/api/channels", headers=viewer)).status_code == 401
+
+
+async def test_header_seen_time_is_not_written_on_every_request(fake_dvr, tmp_path):
+    kw = dict(auth_mode="header", header_secret=SECRET, header_user="X-User", local_login=False)
+    who = {"X-User": "erin", "X-DVR-Bridge-Proxy-Secret": SECRET}
+    async with app_client(fake_dvr, tmp_path, **kw) as c:
+        await c.get("/api/me", headers=who)
+        store = c.auth_service.store
+        first = store.find_user("erin").last_login_at
+        await c.get("/api/me", headers=who)
+        assert store.find_user("erin").last_login_at == first
+
+
 async def test_header_user_cannot_take_over_a_local_account(fake_dvr, tmp_path):
     async with app_client(fake_dvr, tmp_path, auth_mode="header", header_secret=SECRET) as c:
         await setup_admin(c, "alice")       # break-glass local admin (local_login defaults to true)
